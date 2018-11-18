@@ -1,0 +1,7 @@
+.idea/
+*.py[cod]
+*.db
+*.db.tmp
+*.pid
+log/
+*.yml

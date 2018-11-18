@@ -1,0 +1,5 @@
+discord.py
+pylinkirc
+syncer
+disco-py[performance,sharding]
+requests[security]
