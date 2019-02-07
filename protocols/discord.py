@@ -17,7 +17,7 @@ from pylinkirc.classes import *
 from pylinkirc.log import log
 from pylinkirc.protocols.clientbot import ClientbotWrapperProtocol
 
-from discord_formtter import I2DFormatter
+from ._discord_formatter import I2DFormatter
 
 websocket.enableTrace(True)
 
