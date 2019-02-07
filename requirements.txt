@@ -1,5 +1,3 @@
-discord.py
 pylinkirc
-syncer
-disco-py[performance,sharding]
+disco-py
 requests[security]
