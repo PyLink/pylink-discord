@@ -41,33 +41,41 @@ class DiscordBotPlugin(Plugin):
         self.client.gw.ws.emitter.on('on_close', self.protocol.websocket_close, priority=Priority.BEFORE)
         self.botuser = str(event.user.id)
 
+    def _burst_new_client(self, pylink_netobj, member):
+        """Bursts newly a seen user with the given member ID as a new client."""
+        uid = str(member.id)
+
+        user = User(pylink_netobj, member.user.username, calendar.timegm(member.joined_at.timetuple()), uid, str(server.id))
+        user.discord_user = member
+
+        pylink_netobj.users[uid] = user
+        if uid == self.botuser:
+            pylink_netobj.pseudoclient = user
+
+        self.protocol._add_hook(
+            server.name, [
+                server.id,
+                'UID',
+                {
+                    'uid': uid,
+                    'ts': user.ts,
+                    'nick': user.nick,
+                    'realhost': user.realhost,
+                    'host': user.host,
+                    'ident': user.ident,
+                    'ip': user.ip
+                }
+            ])
+        user.permissions = self.compute_base_permissions(member, server)
+
     @Plugin.listen('GuildCreate')
     def on_server_connect(self, event: GuildCreate, *args, **kwargs):
         server = event.guild
         pylink_netobj = self.protocol._create_child(server.name, server.id)
         pylink_netobj.uplink = server.id
 
-        for member_id, member in server.members.items():
-            uid = str(member.id)
-            user = User(pylink_netobj, member.user.username, calendar.timegm(member.joined_at.timetuple()), uid, str(server.id))
-            user.discord_user = member
-            pylink_netobj.users[uid] = user
-            if uid == self.botuser:
-                pylink_netobj.pseudoclient = user
-            self.protocol._add_hook(
-                server.name, [
-                    server.id,
-                    'UID',
-                    {
-                        'uid': uid,
-                        'ts': user.ts,
-                        'nick': user.nick,
-                        'realhost': user.realhost,
-                        'host': user.host,
-                        'ident': user.ident,
-                        'ip': user.ip
-                    }])
-            user.permissions = self.compute_base_permissions(member, server)
+        for member in server.members.values():
+            self._burst_new_client(pylink_netobj, member)
 
         for channel_id, channel in server.channels.items():
             if channel.type == ChannelType.GUILD_TEXT:
@@ -106,6 +114,16 @@ class DiscordBotPlugin(Plugin):
     @Plugin.listen('ChannelCreate')
     def on_channel_create(self, event: ChannelCreate, *args, **kwargs):
         pass
+
+    @Plugin.listen('GuildMemberAdd')
+    def handle_new_user(self, event):
+        try:
+            pylink_netobj = self.protocol._children[guild.name]
+        except KeyError:
+            log.error("(%s) Could not burst user %s as the parent network object does not exist", self.name, event.member)
+            return
+        else:
+            self._burst_new_client(pylink_netobj, event.member)
 
     def compute_base_permissions(self, member, guild):
         if guild.owner == member:
