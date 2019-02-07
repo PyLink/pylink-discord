@@ -67,7 +67,13 @@ class DiscordBotPlugin(Plugin):
             log.debug('(%s) Not reintroducing user %s/%s', self.protocol.name, uid, member.user.username)
             pylink_user = pylink_netobj.users[uid]
         else:
-            pylink_netobj.users[uid] = pylink_user = User(pylink_netobj, member.user.username, calendar.timegm(member.joined_at.timetuple()), uid, guild.id)
+            tag = str(member.user)  # get their name#1234 tag
+            username = member.user.username  # this is just the name portion
+            realname = '%s @ Discord/%s' % (tag, guild.name)
+            pylink_netobj.users[uid] = pylink_user = User(pylink_netobj, nick=member.name,
+                                                          ident=username, realname=realname,
+                                                          host='discord/user/%s' % tag, # XXX make this configurable
+                                                          ts=calendar.timegm(member.joined_at.timetuple()), uid=uid, server=guild.id)
             pylink_user.discord_user = member
 
             if uid == self.botuser:
