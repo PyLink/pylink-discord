@@ -258,8 +258,6 @@ class DiscordServer(ClientbotWrapperProtocol):
 class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
     def __init__(self, *args, **kwargs):
-        from gevent import monkey
-        monkey.patch_all()
         super().__init__(*args, **kwargs)
         self._hooks_queue = queue.Queue()
 
