@@ -23,7 +23,7 @@ websocket.enableTrace(True)
 
 class DiscordBotPlugin(Plugin):
     subserver = {}
-    irc_dicord_perm_mapping = {
+    irc_discord_perm_mapping = {
         'voice': Permissions.SEND_MESSAGES.value,
         'halfop': Permissions.KICK_MEMBERS.value,
         'op': Permissions.BAN_MEMBERS.value,
@@ -82,7 +82,7 @@ class DiscordBotPlugin(Plugin):
                         namelist.append(uid)
                         pylink_netobj.users[uid].channels.add(str(channel))
                         pylink_netobj.channels[str(channel)].users.add(uid)
-                        for irc_mode, discord_permission in self.irc_dicord_perm_mapping.items():
+                        for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
                             if channel_permissions & discord_permission == discord_permission:
                                 channel_modes.add(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
                 pylink_netobj.apply_modes(str(channel), channel_modes)
