@@ -59,6 +59,10 @@ class DiscordBotPlugin(Plugin):
         """Bursts the given member as a new PyLink client."""
         uid = member.id
 
+        if not member.name:
+            log.debug('(%s) Not bursting user %s as their data is not ready yet', self.protocol.name, member)
+            return
+
         if uid in pylink_netobj.users:
             log.debug('(%s) Not reintroducing user %s/%s', self.protocol.name, uid, member.user.username)
             pylink_user = pylink_netobj.users[uid]
@@ -88,8 +92,8 @@ class DiscordBotPlugin(Plugin):
             if channel.type == ChannelType.GUILD_TEXT:
                 modes = []
                 pylink_channame = '#' + channel.name
-                pylink_channel = pylink_netobj.channels[channel.id] = pylink_netobj.channels[pylink_channame] = \
-                    Channel(pylink_netobj, name=channel.id)
+                # Automatically create a channel if not present
+                pylink_channel = pylink_netobj._channels[pylink_channame]
                 pylink_channel.discord_channel = channel
 
                 # We consider a user to be "in a channel" if they are allowed to read messages there
@@ -108,7 +112,7 @@ class DiscordBotPlugin(Plugin):
                         if channel_permissions.can(discord_permission) or guild_permissions.can(discord_permission):
                             modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
                     if modes:
-                        pylink_netobj.apply_modes(pylink_channel, modes)
+                        pylink_netobj.apply_modes(pylink_channame, modes)
 
                     pylink_netobj.call_hooks([
                         None,
@@ -131,7 +135,7 @@ class DiscordBotPlugin(Plugin):
         try:
             pylink_netobj = self.protocol._children[event.guild.name]
         except KeyError:
-            log.error("(%s) Could not burst users %s as the parent network object does not exist", self.name, event.members)
+            log.error("(%s) Could not burst users %s as the parent network object does not exist", self.protocol.name, event.members)
             return
         else:
             for member in event.members:
@@ -143,7 +147,7 @@ class DiscordBotPlugin(Plugin):
         try:
             pylink_netobj = self.protocol._children[event.guild.name]
         except KeyError:
-            log.error("(%s) Could not burst user %s as the parent network object does not exist", self.name, event.member)
+            log.error("(%s) Could not burst user %s as the parent network object does not exist", self.protocol.name, event.member)
             return
         else:
             self._burst_new_client(event.guild, event.member, pylink_netobj)
@@ -165,9 +169,9 @@ class DiscordBotPlugin(Plugin):
                 if message.author.id in server.users:
                     target = self.botuser
                     subserver = server.name
-                    server.users[message.author.id].dm_channel = message.channel
-                    server.channels[message.channel.id] = c = Channel(server, name=message.channel.id)
-                    c.discord_channel = message.channel
+                    #server.users[message.author.id].dm_channel = message.channel
+                    #server._channels[message.channel.id] = c  # Create a new channel
+                    #c.discord_channel = message.channel
 
                     break
             if not (subserver or target):
