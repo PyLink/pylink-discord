@@ -7,11 +7,11 @@ import websocket
 from disco.bot import Bot, BotConfig
 from disco.bot import Plugin
 from disco.client import Client, ClientConfig
-from disco.gateway.events import GuildCreate, ChannelCreate, MessageCreate
+from disco.gateway.events import *
 from disco.types import Guild, Channel as DiscordChannel, GuildMember, Message
 from disco.types.channel import ChannelType
 from disco.types.permissions import Permissions
-from disco.util.logging import setup_logging
+#from disco.util.logging import setup_logging
 from holster.emitter import Priority
 from pylinkirc.classes import *
 from pylinkirc.log import log
@@ -22,7 +22,7 @@ from ._discord_formatter import I2DFormatter
 websocket.enableTrace(True)
 
 class DiscordBotPlugin(Plugin):
-    subserver = {}
+
     irc_discord_perm_mapping = {
         'voice': Permissions.SEND_MESSAGES.value,
         'halfop': Permissions.KICK_MEMBERS.value,
@@ -41,49 +41,24 @@ class DiscordBotPlugin(Plugin):
         self.client.gw.ws.emitter.on('on_close', self.protocol.websocket_close, priority=Priority.BEFORE)
         self.botuser = str(event.user.id)
 
-    def _burst_new_client(self, pylink_netobj, member):
-        """Bursts newly a seen user with the given member ID as a new client."""
-        uid = str(member.id)
+        log.info('(%s) got ready event', self.protocol.name)
+        self.protocol.connected.set()
 
-        user = User(pylink_netobj, member.user.username, calendar.timegm(member.joined_at.timetuple()), uid, str(server.id))
-        user.discord_user = member
+    def _burst_guild(self, guild):
+        log.info('(%s) bursting guild %s/%s', self.protocol.name, guild.id, guild.name)
+        pylink_netobj = self.protocol._create_child(guild.name, guild.id)
+        pylink_netobj.uplink = None
 
-        pylink_netobj.users[uid] = user
-        if uid == self.botuser:
-            pylink_netobj.pseudoclient = user
+        for member in guild.members.values():
+            self._burst_new_client(guild, member, pylink_netobj)
 
-        self.protocol._add_hook(
-            server.name, [
-                server.id,
-                'UID',
-                {
-                    'uid': uid,
-                    'ts': user.ts,
-                    'nick': user.nick,
-                    'realhost': user.realhost,
-                    'host': user.host,
-                    'ident': user.ident,
-                    'ip': user.ip
-                }
-            ])
-        user.permissions = self.compute_base_permissions(member, server)
-
-    @Plugin.listen('GuildCreate')
-    def on_server_connect(self, event: GuildCreate, *args, **kwargs):
-        server = event.guild
-        pylink_netobj = self.protocol._create_child(server.name, server.id)
-        pylink_netobj.uplink = server.id
-
-        for member in server.members.values():
-            self._burst_new_client(pylink_netobj, member)
-
-        for channel_id, channel in server.channels.items():
+        for channel_id, channel in guild.channels.items():
             if channel.type == ChannelType.GUILD_TEXT:
                 namelist = []
                 chandata = pylink_netobj.channels[str(channel)] = Channel(pylink_netobj, name=str(channel))
                 channel_modes = set()
                 for uid, user in pylink_netobj.users.items():
-                    discord_user = server.members[int(uid)]
+                    discord_user = guild.members[int(uid)]
                     channel_permissions = self.compute_user_channel_perms(user.permissions, discord_user, channel)
                     if channel_permissions & Permissions.READ_MESSAGES.value == Permissions.READ_MESSAGES.value:
                         namelist.append(uid)
@@ -95,8 +70,8 @@ class DiscordBotPlugin(Plugin):
                 pylink_netobj.apply_modes(str(channel), channel_modes)
                 chandata.discord_channel = channel
                 self.protocol._add_hook(
-                    server.name, [
-                        server.id,
+                    guild.name, [
+                        guild.id,
                         'JOIN',
                         {
                             'channel': str(channel),
@@ -104,19 +79,50 @@ class DiscordBotPlugin(Plugin):
                             'modes': [],
                             'ts': chandata.ts,
                             'channeldata': chandata
-                        }])
+                        }
+                    ])
 
-
-        self.subserver[server.name] = pylink_netobj
         pylink_netobj.connected.set()
-        self.protocol._add_hook(server.name, [server.id, 'ENDBURST', {}])
+        pylink_netobj.call_hooks([None, 'ENDBURST', {}])
+
+    def _burst_new_client(self, guild, member, pylink_netobj):
+        """Bursts the given member as a new PyLink client."""
+        uid = str(member.id)
+
+        user = User(pylink_netobj, member.user.username, calendar.timegm(member.joined_at.timetuple()), uid, str(guild.id))
+        user.discord_user = member
+
+        pylink_netobj.users[uid] = user
+        if uid == self.botuser:
+            pylink_netobj.pseudoclient = user
+
+        self.protocol._add_hook(
+            guild.name, [
+                guild.id,
+                'UID',
+                {
+                    'uid': uid,
+                    'ts': user.ts,
+                    'nick': user.nick,
+                    'realhost': user.realhost,
+                    'host': user.host,
+                    'ident': user.ident,
+                    'ip': user.ip
+                }
+            ])
+        user.permissions = self.compute_base_permissions(member, guild)
+
+    @Plugin.listen('GuildCreate')
+    def on_server_connect(self, event: GuildCreate, *args, **kwargs):
+        log.info('(%s) got GuildCreate event for guild %s/%s', self.protocol.name, event.guild.id, event.guild.name)
+        self._burst_guild(event.guild)
 
     @Plugin.listen('ChannelCreate')
     def on_channel_create(self, event: ChannelCreate, *args, **kwargs):
         pass
 
     @Plugin.listen('GuildMemberAdd')
-    def handle_new_user(self, event):
+    def handle_new_user(self, event: GuildMemberAdd, *args, **kwargs):
         try:
             pylink_netobj = self.protocol._children[guild.name]
         except KeyError:
@@ -187,7 +193,7 @@ class DiscordBotPlugin(Plugin):
         if not message.guild:
             # This is a DM
             # see if we've seen this user on any of our servers
-            for server in self.subserver.values():
+            for server in self.protocol._children.values():
                 if str(message.author.id) in server.users:
                     target = self.botuser
                     subserver = server.name
@@ -227,6 +233,7 @@ class DiscordServer(ClientbotWrapperProtocol):
 
     def message(self, source, target, text, notice=False):
         """Sends messages to the target."""
+        target = str(target)
         if target in self.users:
             discord_target = self.users[target].discord_user.user.open_dm()
         else:
@@ -258,7 +265,6 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._hooks_queue = queue.Queue()
 
         if 'token' not in self.serverdata:
             raise ProtocolError("No API token defined under server settings")
@@ -268,7 +274,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         self.bot = Bot(self.client, self.bot_config)
         self.bot_plugin = DiscordBotPlugin(self, self.bot, self.bot_config)
         self.bot.add_plugin(self.bot_plugin)
-        setup_logging(level='DEBUG')
+        #setup_logging(level='DEBUG')
         self._children = {}
         self.message_queue = queue.Queue()
 
@@ -308,36 +314,6 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             else:
                 channel.send_message(message_text)
 
-
-    def _process_hooks(self):
-        """Loop to process incoming hook data."""
-        while not self._aborted.is_set():
-            data = self._hooks_queue.get()
-            if data is None:
-                log.debug('(%s) Stopping queue thread due to getting None as item', self.name)
-                break
-            elif self not in world.networkobjects.values():
-                log.debug('(%s) Stopping stale queue thread; no longer matches world.networkobjects', self.name)
-                break
-
-            subserver, data = data
-            if subserver not in world.networkobjects:
-                log.error('(%s) Not queuing hook for subserver %r no longer in networks list.',
-                          self.name, subserver)
-            elif subserver in self._children:
-                self._children[subserver].call_hooks(data)
-
-    def _add_hook(self, subserver, data):
-        """
-        Pushes a hook payload for the given subserver.
-        """
-        if subserver not in self._children:
-            raise ValueError("Unknown subserver %s" % subserver)
-        self._hooks_queue.put_nowait((
-            subserver,
-            data
-        ))
-
     def _create_child(self, name, server_id):
         """
         Creates a virtual network object for a server with the given name.
@@ -358,11 +334,6 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
     def connect(self):
         self._aborted.clear()
-
-        self._queue_thread = threading.Thread(name="Queue thread for %s" % self.name,
-                                             target=self._process_hooks, daemon=True)
-        self._queue_thread.start()
-
         self._message_thread = threading.Thread(name="Message thread for %s" % self.name,
                                                 target=self._message_builder, daemon=True)
         self._message_thread.start()
@@ -376,14 +347,6 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         self._aborted.set()
 
         self._pre_disconnect()
-
-        log.debug('(%s) Killing hooks handler', self.name)
-        try:
-            # XXX: queue.Queue.queue isn't actually documented, so this is probably not reliable in the long run.
-            with self._hooks_queue.mutex:
-                self._hooks_queue.queue[0] = None
-        except IndexError:
-            self._hooks_queue.put(None)
 
         children = self._children.copy()
         for child in children:
