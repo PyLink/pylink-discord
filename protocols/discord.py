@@ -43,10 +43,10 @@ class DiscordBotPlugin(Plugin):
 
     @Plugin.listen('GuildCreate')
     def on_server_connect(self, event: GuildCreate, *args, **kwargs):
-        server: Guild = event.guild
-        pylink_netobj: DiscordServer = self.protocol._create_child(server.name, server.id)
+        server = event.guild
+        pylink_netobj = self.protocol._create_child(server.name, server.id)
         pylink_netobj.uplink = server.id
-        member: GuildMember
+
         for member_id, member in server.members.items():
             uid = str(member.id)
             user = User(pylink_netobj, member.user.username, calendar.timegm(member.joined_at.timetuple()), uid, str(server.id))
@@ -69,7 +69,6 @@ class DiscordBotPlugin(Plugin):
                     }])
             user.permissions = self.compute_base_permissions(member, server)
 
-        channel: DiscordChannel
         for channel_id, channel in server.channels.items():
             if channel.type == ChannelType.GUILD_TEXT:
                 namelist = []
@@ -159,7 +158,7 @@ class DiscordBotPlugin(Plugin):
 
     @Plugin.listen('MessageCreate')
     def on_message(self, event: MessageCreate, *args, **kwargs):
-        message: Message = event.message
+        message = event.message
         subserver = None
         target = None
 
