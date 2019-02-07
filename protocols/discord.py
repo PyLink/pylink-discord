@@ -158,6 +158,20 @@ class DiscordBotPlugin(Plugin):
         else:
             self._burst_new_client(event.guild, event.member, pylink_netobj)
 
+    @Plugin.listen('GuildMemberRemove')
+    def on_member_remove(self, event: GuildMemberRemove, *args, **kwargs):
+        log.info('(%s) got GuildMemberRemove event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.user)
+        try:
+            pylink_netobj = self.protocol._children[event.guild.name]
+        except KeyError:
+            log.error("(%s) Could not remove user %s as the parent network object does not exist", self.protocol.name, event.user)
+            return
+        else:
+            if event.user.id in pylink_netobj.users:
+                pylink_netobj._remove_client(event.user.id)
+                # XXX: make the message configurable
+                pylink_netobj.call_hooks([event.user.id, 'QUIT', {'text': 'User left the guild'}])
+
     @Plugin.listen('MessageCreate')
     def on_message(self, event: MessageCreate, *args, **kwargs):
         message = event.message
