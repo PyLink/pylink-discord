@@ -52,36 +52,6 @@ class DiscordBotPlugin(Plugin):
         for member in guild.members.values():
             self._burst_new_client(guild, member, pylink_netobj)
 
-        for channel_id, channel in guild.channels.items():
-            if channel.type == ChannelType.GUILD_TEXT:
-                namelist = []
-                chandata = pylink_netobj.channels[str(channel)] = Channel(pylink_netobj, name=str(channel))
-                channel_modes = set()
-                for uid, user in pylink_netobj.users.items():
-                    discord_user = guild.members[int(uid)]
-                    channel_permissions = self.compute_user_channel_perms(user.permissions, discord_user, channel)
-                    if channel_permissions & Permissions.READ_MESSAGES.value == Permissions.READ_MESSAGES.value:
-                        namelist.append(uid)
-                        pylink_netobj.users[uid].channels.add(str(channel))
-                        pylink_netobj.channels[str(channel)].users.add(uid)
-                        for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
-                            if channel_permissions & discord_permission == discord_permission:
-                                channel_modes.add(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
-                pylink_netobj.apply_modes(str(channel), channel_modes)
-                chandata.discord_channel = channel
-                self.protocol._add_hook(
-                    guild.name, [
-                        guild.id,
-                        'JOIN',
-                        {
-                            'channel': str(channel),
-                            'users': namelist,
-                            'modes': [],
-                            'ts': chandata.ts,
-                            'channeldata': chandata
-                        }
-                    ])
-
         pylink_netobj.connected.set()
         pylink_netobj.call_hooks([None, 'ENDBURST', {}])
 
@@ -89,47 +59,81 @@ class DiscordBotPlugin(Plugin):
         """Bursts the given member as a new PyLink client."""
         uid = str(member.id)
 
-        user = User(pylink_netobj, member.user.username, calendar.timegm(member.joined_at.timetuple()), uid, str(guild.id))
-        user.discord_user = member
+        pylink_user = User(pylink_netobj, member.user.username, calendar.timegm(member.joined_at.timetuple()), uid, str(guild.id))
+        pylink_user.discord_user = member
 
-        pylink_netobj.users[uid] = user
+        pylink_netobj.users[uid] = pylink_user
         if uid == self.botuser:
-            pylink_netobj.pseudoclient = user
+            pylink_netobj.pseudoclient = pylink_user
 
-        self.protocol._add_hook(
-            guild.name, [
-                guild.id,
-                'UID',
-                {
-                    'uid': uid,
-                    'ts': user.ts,
-                    'nick': user.nick,
-                    'realhost': user.realhost,
-                    'host': user.host,
-                    'ident': user.ident,
-                    'ip': user.ip
-                }
-            ])
+        pylink_netobj.call_hooks([
+            None,
+            'UID',
+            {
+                'uid': uid,
+                'ts': pylink_user.ts,
+                'nick': pylink_user.nick,
+                'realhost': pylink_user.realhost,
+                'host': pylink_user.host,
+                'ident': pylink_user.ident,
+                'ip': pylink_user.ip
+            }
+        ])
         user.permissions = self.compute_base_permissions(member, guild)
+
+        # Calculate which channels the user belongs to
+        for channel in guild.channels.values():
+            if channel.type == ChannelType.GUILD_TEXT:
+                prefixes = ''
+                pylink_channel = pylink_netobj.channels[str(channel)] = Channel(pylink_netobj, name=str(channel))
+                pylink_channel.discord_channel = channel
+
+                # We consider a user to be "in a channel" if they are allowed to read messages there
+                channel_permissions = self.compute_user_channel_perms(user.permissions, member.id, channel)
+                if channel_permissions & Permissions.READ_MESSAGES.value == Permissions.READ_MESSAGES.value:
+                    pylink_user.channels.add(str(channel))
+                    pylink_channel.users.add(uid)
+                    for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
+                        if channel_permissions & discord_permission == discord_permission:
+                            prefixes += pylink_netobj.cmodes[irc_mode]
+
+                pylink_netobj.call_hooks([
+                    None,
+                    'JOIN',
+                    {
+                        'channel': str(channel),
+                        'users': [(prefixes, pylink_user.id)],
+                        'modes': []
+                    }
+                ])
 
     @Plugin.listen('GuildCreate')
     def on_server_connect(self, event: GuildCreate, *args, **kwargs):
         log.info('(%s) got GuildCreate event for guild %s/%s', self.protocol.name, event.guild.id, event.guild.name)
         self._burst_guild(event.guild)
 
-    @Plugin.listen('ChannelCreate')
-    def on_channel_create(self, event: ChannelCreate, *args, **kwargs):
-        pass
+    @Plugin.listen('GuildMembersChunk')
+    def on_new_member_chunk(self, event: GuildMembersChunk, *args, **kwargs):
+        log.info('(%s) got GuildMembersChunk event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.members)
+        try:
+            pylink_netobj = self.protocol._children[event.guild.name]
+        except KeyError:
+            log.error("(%s) Could not burst users %s as the parent network object does not exist", self.name, event.members)
+            return
+        else:
+            for member in event.members:
+                self._burst_new_client(event.guild, member, pylink_netobj)
 
     @Plugin.listen('GuildMemberAdd')
-    def handle_new_user(self, event: GuildMemberAdd, *args, **kwargs):
+    def on_new_member(self, event: GuildMemberAdd, *args, **kwargs):
+        log.info('(%s) got GuildMemberAdd event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.member)
         try:
-            pylink_netobj = self.protocol._children[guild.name]
+            pylink_netobj = self.protocol._children[event.guild.name]
         except KeyError:
             log.error("(%s) Could not burst user %s as the parent network object does not exist", self.name, event.member)
             return
         else:
-            self._burst_new_client(pylink_netobj, event.member)
+            self._burst_new_client(event.guild, event.member, pylink_netobj)
 
     def compute_base_permissions(self, member, guild):
         if guild.owner == member:
@@ -208,10 +212,7 @@ class DiscordBotPlugin(Plugin):
             subserver = message.guild.name
             target = message.channel
 
-        self.protocol._add_hook(
-            subserver,
-            [str(message.author.id), 'PRIVMSG', {'target': str(target), 'text': message.content}]
-        )
+        pylink_netobj.call_hooks([str(message.author.id), 'PRIVMSG', {'target': str(target), 'text': message.content}])
 
 
 class DiscordServer(ClientbotWrapperProtocol):
@@ -328,7 +329,8 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         """
         Removes a virtual network object with the given name.
         """
-        self._add_hook(name, [None, 'PYLINK_DISCONNECT', {}])
+        pylink_netobj = self._children[name]
+        pylink_netobj.call_hooks([None, 'PYLINK_DISCONNECT', {}])
         del self._children[name]
         del world.networkobjects[name]
 

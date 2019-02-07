@@ -2,11 +2,7 @@
 """Run PyLink with gevent patches enabled."""
 
 import gevent.monkey
-import gevent.hub
 gevent.monkey.patch_all()
-
-# XXX: make this target configurable
-gevent.hub.get_hub().exception_stream = open('pylink-discord.log', 'w')
 
 import sys
 try:
