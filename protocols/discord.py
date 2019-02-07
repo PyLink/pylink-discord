@@ -220,21 +220,7 @@ class DiscordServer(ClientbotWrapperProtocol):
             self.virtual_parent.message_queue.put_nowait(message_data)
             return
 
-        if not self.is_channel(target):
-            self.call_hooks([source, 'CLIENTBOT_MESSAGE', {'target': target, 'is_notice': notice, 'text': text}])
-            return
-
-        try:
-            text = I2DFormatter().format(text)
-            remotenet, remoteuser = self.users[source].remote
-            channel_webhooks = discord_target.get_webhooks()
-            if channel_webhooks:
-                message_data['webhook'] = channel_webhooks[0]
-                message_data.update(self.get_user_webhook_data(remoteuser, remotenet))
-            message_data['text'] = I2DFormatter().format(text)
-            self.virtual_parent.message_queue.put_nowait(message_data)
-        except (AttributeError, KeyError):
-            self.call_hooks([source, 'CLIENTBOT_MESSAGE', {'target': target, 'is_notice': notice, 'text': text}])
+        self.call_hooks([source, 'CLIENTBOT_MESSAGE', {'target': target, 'is_notice': notice, 'text': text}])
 
     def join(self, client, channel):
         """STUB: Joins a user to a channel."""
@@ -246,13 +232,8 @@ class DiscordServer(ClientbotWrapperProtocol):
         self.call_hooks([client, 'CLIENTBOT_JOIN', {'channel': channel}])
 
     def send(self, data, queue=True):
-        pass
-
-    def get_user_webhook_data(self, uid, network):
-        user = world.networkobjects[network].users[uid]
-        return {
-            'username': "{} (IRC @ {})".format(user.nick, network)
-        }
+        log.warning('(%s) Ignoring attempt to send raw data via child network object')
+        return
 
 
 class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
