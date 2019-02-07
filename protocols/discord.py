@@ -24,10 +24,10 @@ websocket.enableTrace(True)
 class DiscordBotPlugin(Plugin):
 
     irc_discord_perm_mapping = {
-        'voice': Permissions.SEND_MESSAGES.value,
-        'halfop': Permissions.KICK_MEMBERS.value,
-        'op': Permissions.BAN_MEMBERS.value,
-        'admin': Permissions.ADMINISTRATOR.value
+        'voice': Permissions.SEND_MESSAGES,
+        'halfop': Permissions.KICK_MEMBERS,
+        'op': Permissions.BAN_MEMBERS,
+        'admin': Permissions.ADMINISTRATOR
     }
     ALL_PERMS = reduce(operator.ior, Permissions.values_)
     botuser = None
@@ -39,7 +39,7 @@ class DiscordBotPlugin(Plugin):
     @Plugin.listen('Ready')
     def on_ready(self, event, *args, **kwargs):
         self.client.gw.ws.emitter.on('on_close', self.protocol.websocket_close, priority=Priority.BEFORE)
-        self.botuser = str(event.user.id)
+        self.botuser = event.user.id
 
         log.info('(%s) got ready event', self.protocol.name)
         self.protocol.connected.set()
@@ -57,55 +57,68 @@ class DiscordBotPlugin(Plugin):
 
     def _burst_new_client(self, guild, member, pylink_netobj):
         """Bursts the given member as a new PyLink client."""
-        uid = str(member.id)
+        uid = member.id
 
-        pylink_user = User(pylink_netobj, member.user.username, calendar.timegm(member.joined_at.timetuple()), uid, str(guild.id))
-        pylink_user.discord_user = member
+        if uid in pylink_netobj.users:
+            log.debug('(%s) Not reintroducing user %s/%s', self.protocol.name, uid, member.user.username)
+            pylink_user = pylink_netobj.users[uid]
+        else:
+            pylink_netobj.users[uid] = pylink_user = User(pylink_netobj, member.user.username, calendar.timegm(member.joined_at.timetuple()), uid, guild.id)
+            pylink_user.discord_user = member
 
-        pylink_netobj.users[uid] = pylink_user
-        if uid == self.botuser:
-            pylink_netobj.pseudoclient = pylink_user
+            if uid == self.botuser:
+                pylink_netobj.pseudoclient = pylink_user
 
-        pylink_netobj.call_hooks([
-            None,
-            'UID',
-            {
-                'uid': uid,
-                'ts': pylink_user.ts,
-                'nick': pylink_user.nick,
-                'realhost': pylink_user.realhost,
-                'host': pylink_user.host,
-                'ident': pylink_user.ident,
-                'ip': pylink_user.ip
-            }
-        ])
-        user.permissions = self.compute_base_permissions(member, guild)
+            pylink_netobj.call_hooks([
+                None,
+                'UID',
+                {
+                    'uid': uid,
+                    'ts': pylink_user.ts,
+                    'nick': pylink_user.nick,
+                    'realhost': pylink_user.realhost,
+                    'host': pylink_user.host,
+                    'ident': pylink_user.ident,
+                    'ip': pylink_user.ip
+                }
+            ])
 
         # Calculate which channels the user belongs to
         for channel in guild.channels.values():
             if channel.type == ChannelType.GUILD_TEXT:
-                prefixes = ''
-                pylink_channel = pylink_netobj.channels[str(channel)] = Channel(pylink_netobj, name=str(channel))
+                modes = []
+                pylink_channame = '#' + channel.name
+                pylink_channel = pylink_netobj.channels[channel.id] = pylink_netobj.channels[pylink_channame] = \
+                    Channel(pylink_netobj, name=channel.id)
                 pylink_channel.discord_channel = channel
 
                 # We consider a user to be "in a channel" if they are allowed to read messages there
-                channel_permissions = self.compute_user_channel_perms(user.permissions, member.id, channel)
-                if channel_permissions & Permissions.READ_MESSAGES.value == Permissions.READ_MESSAGES.value:
-                    pylink_user.channels.add(str(channel))
+                # XXX we shouldn't need to check both??
+                channel_permissions = channel.get_permissions(member)
+                guild_permissions = guild.get_permissions(member)
+                log.debug('discord: checking if member %s has permission read_messages on %s/%s: %s',
+                          member, channel.id, pylink_channame, channel_permissions.can(Permissions.READ_MESSAGES))
+                log.debug('discord: checking if member %s has permission read_messages on guild %s/%s: %s',
+                          member, guild.id, guild.name, guild_permissions.can(Permissions.READ_MESSAGES))
+                if channel_permissions.can(Permissions.read_messages) or guild_permissions.can(Permissions.READ_MESSAGES):
+                    pylink_user.channels.add(pylink_channame)
                     pylink_channel.users.add(uid)
-                    for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
-                        if channel_permissions & discord_permission == discord_permission:
-                            prefixes += pylink_netobj.cmodes[irc_mode]
 
-                pylink_netobj.call_hooks([
-                    None,
-                    'JOIN',
-                    {
-                        'channel': str(channel),
-                        'users': [(prefixes, pylink_user.id)],
-                        'modes': []
-                    }
-                ])
+                    for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
+                        if channel_permissions.can(discord_permission) or guild_permissions.can(discord_permission):
+                            modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
+                    if modes:
+                        pylink_netobj.apply_modes(pylink_channel, modes)
+
+                    pylink_netobj.call_hooks([
+                        None,
+                        'JOIN',
+                        {
+                            'channel': pylink_channame,
+                            'users': [uid],
+                            'modes': []
+                        }
+                    ])
 
     @Plugin.listen('GuildCreate')
     def on_server_connect(self, event: GuildCreate, *args, **kwargs):
@@ -135,55 +148,6 @@ class DiscordBotPlugin(Plugin):
         else:
             self._burst_new_client(event.guild, event.member, pylink_netobj)
 
-    def compute_base_permissions(self, member, guild):
-        if guild.owner == member:
-            return self.ALL_PERMS
-
-        # get @everyone role
-        role_everyone = guild.roles[guild.id]
-        permissions = role_everyone.permissions.value
-
-        for role in member.roles:
-            permissions |= guild.roles[role].permissions.value
-
-        if permissions & Permissions.ADMINISTRATOR.value == Permissions.ADMINISTRATOR.value:
-            return self.ALL_PERMS
-
-        return permissions
-
-    def compute_user_channel_perms(self, base_permissions, member, channel):
-        # ADMINISTRATOR overrides any potential permission overwrites, so there is nothing to do here.
-        if base_permissions & Permissions.ADMINISTRATOR.value == Permissions.ADMINISTRATOR.value:
-            return self.ALL_PERMS
-
-        permissions = base_permissions
-        # Find (@everyone) role overwrite and apply it.
-        overwrite_everyone = channel.overwrites.get(channel.guild_id)
-        if overwrite_everyone:
-            permissions &= ~overwrite_everyone.deny.value
-            permissions |= overwrite_everyone.allow.value
-
-        # Apply role specific overwrites.
-        overwrites = channel.overwrites
-        allow = 0
-        deny = 0
-        for role_id in member.roles:
-            overwrite_role = overwrites.get(role_id)
-            if overwrite_role:
-                allow |= overwrite_role.allow.value
-                deny |= overwrite_role.deny.value
-
-        permissions &= ~deny
-        permissions |= allow
-
-        # Apply member specific overwrite if it exist.
-        overwrite_member = overwrites.get(member.id)
-        if overwrite_member:
-            permissions &= ~overwrite_member.deny
-            permissions |= overwrite_member.allow
-
-        return permissions
-
     @Plugin.listen('MessageCreate')
     def on_message(self, event: MessageCreate, *args, **kwargs):
         message = event.message
@@ -191,29 +155,31 @@ class DiscordBotPlugin(Plugin):
         target = None
 
         # If the bot is the one sending the message, don't do anything
-        if str(message.author.id) == self.botuser or message.webhook_id:
+        if message.author.id == self.botuser or message.webhook_id:
             return
 
         if not message.guild:
             # This is a DM
             # see if we've seen this user on any of our servers
             for server in self.protocol._children.values():
-                if str(message.author.id) in server.users:
+                if message.author.id in server.users:
                     target = self.botuser
                     subserver = server.name
-                    server.users[str(message.author.id)].dm_channel = str(message.channel.id)
-                    server.channels[str(message.channel)] = Channel(server, name=str(message.channel))
-                    server.channels[str(message.channel)].discord_channel = message.channel
+                    server.users[message.author.id].dm_channel = message.channel
+                    server.channels[message.channel.id] = c = Channel(server, name=message.channel.id)
+                    c.discord_channel = message.channel
 
                     break
             if not (subserver or target):
                 return
         else:
             subserver = message.guild.name
-            target = message.channel
+            # For plugins, route channel targets to the name instead of ID
+            target = '#' + message.channel.name
 
-        pylink_netobj.call_hooks([str(message.author.id), 'PRIVMSG', {'target': str(target), 'text': message.content}])
-
+        if subserver:
+            pylink_netobj = self.protocol._children[subserver]
+            pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': message.content}])
 
 class DiscordServer(ClientbotWrapperProtocol):
     def __init__(self, name, parent, server_id):
@@ -222,7 +188,7 @@ class DiscordServer(ClientbotWrapperProtocol):
         self.virtual_parent = parent
         self.sidgen = PUIDGenerator('DiscordInternalSID')
         self.uidgen = PUIDGenerator('PUID')
-        self.sid = str(server_id)
+        self.sid = server_id
         self.servers[self.sid] = Server(self, None, '0.0.0.0', internal=False, desc=name)
 
     def _init_vars(self):
@@ -231,10 +197,25 @@ class DiscordServer(ClientbotWrapperProtocol):
         self.cmodes = {'op': 'o', 'halfop': 'h', 'voice': 'v', 'owner': 'q', 'admin': 'a',
                        '*A': '', '*B': '', '*C': '', '*D': ''}
 
+    def is_nick(self, *args, **kwargs):
+        return self.virtual_parent.is_nick(*args, **kwargs)
+
+    def is_channel(self, *args, **kwargs):
+        """Returns whether the target is a channel."""
+        return self.virtual_parent.is_channel(*args, **kwargs)
+
+    def is_server_name(self, *args, **kwargs):
+        """Returns whether the string given is a valid IRC server name."""
+        return self.virtual_parent.is_server_name(*args, **kwargs)
+
+    def get_friendly_name(self, *args, **kwargs):
+        """
+        Returns the friendly name of a SID (the guild name), UID (the nick), or channel (the name).
+        """
+        return self.virtual_parent.get_friendly_name(*args, caller=self, **kwargs)
 
     def message(self, source, target, text, notice=False):
         """Sends messages to the target."""
-        target = str(target)
         if target in self.users:
             discord_target = self.users[target].discord_user.user.open_dm()
         else:
@@ -258,7 +239,7 @@ class DiscordServer(ClientbotWrapperProtocol):
         self.call_hooks([client, 'CLIENTBOT_JOIN', {'channel': channel}])
 
     def send(self, data, queue=True):
-        log.warning('(%s) Ignoring attempt to send raw data via child network object')
+        log.debug('(%s) Ignoring attempt to send raw data via child network object', self.name)
         return
 
 
@@ -278,6 +259,51 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         #setup_logging(level='DEBUG')
         self._children = {}
         self.message_queue = queue.Queue()
+
+    @staticmethod
+    def is_nick(s, nicklen=None):
+        return True
+
+    def is_channel(self, s):
+        """Returns whether the target is a channel."""
+        # Treat Discord channel IDs and names both as channels
+        return s in self.bot_plugin.state.channels or str(s).startswith('#')
+
+    def is_server_name(self, s):
+        """Returns whether the string given is a valid IRC server name."""
+        return s in self.bot_plugin.state.guilds
+
+    def get_friendly_name(self, entityid, caller=None):
+        """
+        Returns the friendly name of a SID (the guild name), UID (the nick), or channel (the name).
+        """
+        # IRC-style channel link, return as is
+        if isinstance(entityid, str) and entityid.startswith('#'):
+            return entityid
+        # internal PUID, handle appropriately
+        elif isinstance(entityid, str) and '@' in entityid:
+            if entityid in self.users:
+                return self.users[entityid].nick
+            elif caller and entityid in caller.users:
+                return caller.users[entityid].nick
+            else:
+                # Probably a server
+                return entityid.split('@', 1)[0]
+
+        if self.is_channel(entityid):
+            return '#' + self.bot_plugin.state.channels[entityid].name
+        elif entityid in self.bot_plugin.state.users:
+            return self.bot_plugin.state.users[entityid].username
+        elif self.is_server_name(entityid):
+            return self.bot_plugin.state.guilds[entityid].name
+        else:
+            raise KeyError("Unknown entity ID %s" % str(entityid))
+
+    def wrap_message(self, source, target, command, text):
+        """
+        STUB: Wraps the given message text into multiple lines as needed.
+        """
+        raise text
 
     def _message_builder(self):
         current_channel_senders = {}
