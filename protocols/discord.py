@@ -38,8 +38,9 @@ from ._discord_formatter import I2DFormatter
 
 websocket.enableTrace(True)
 
-class DiscordBotPlugin(Plugin):
+BATCH_DELAY = 0.3  # TODO: make this configurable
 
+class DiscordBotPlugin(Plugin):
     irc_discord_perm_mapping = {
         'voice': Permissions.SEND_MESSAGES,
         'halfop': Permissions.KICK_MEMBERS,
@@ -223,6 +224,8 @@ class DiscordBotPlugin(Plugin):
             pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': message.content}])
 
 class DiscordServer(ClientbotWrapperProtocol):
+    S2S_BUFSIZE = 0
+
     def __init__(self, name, parent, server_id):
         conf.conf['servers'][name] = {}
         super().__init__(name)
@@ -285,6 +288,7 @@ class DiscordServer(ClientbotWrapperProtocol):
 
 
 class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
+    S2S_BUFSIZE = 0
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -340,25 +344,20 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         else:
             raise KeyError("Unknown entity ID %s" % str(entityid))
 
-    def wrap_message(self, source, target, command, text):
-        """
-        STUB: Wraps the given message text into multiple lines as needed.
-        """
-        raise text
-
     def _message_builder(self):
         current_channel_senders = {}
         joined_messages = defaultdict(dict)
         while not self._aborted.is_set():
             try:
-                message = self.message_queue.get(timeout=0.1)
+                message = self.message_queue.get(timeout=BATCH_DELAY)
                 message_text = message.pop('text', '')
                 channel = message.pop('target')
                 current_sender = current_channel_senders.get(channel, None)
 
-                if current_sender != message['sender']:
-                    self.flush(channel, joined_messages[channel])
-                    joined_messages[channel] = message
+                # We'll enable this when we work on webhook support again...
+                #if current_sender != message['sender']:
+                #    self.flush(channel, joined_messages[channel])
+                #    joined_messages[channel] = message
 
                 current_channel_senders[channel] = message['sender']
 
