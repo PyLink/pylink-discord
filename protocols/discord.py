@@ -90,6 +90,7 @@ class DiscordBotPlugin(Plugin):
             tag = str(member.user)  # get their name#1234 tag
             username = member.user.username  # this is just the name portion
             realname = '%s @ Discord/%s' % (tag, guild.name)
+            # Prefer the person's guild nick (nick=member.name) if defined
             pylink_netobj.users[uid] = pylink_user = User(pylink_netobj, nick=member.name,
                                                           ident=username, realname=realname,
                                                           host='discord/user/%s' % tag, # XXX make this configurable
@@ -150,33 +151,54 @@ class DiscordBotPlugin(Plugin):
                         }
                     ])
 
+        return pylink_user
+
     @Plugin.listen('GuildCreate')
     def on_server_connect(self, event: GuildCreate, *args, **kwargs):
         log.info('(%s) got GuildCreate event for guild %s/%s', self.protocol.name, event.guild.id, event.guild.name)
         self._burst_guild(event.guild)
 
     @Plugin.listen('GuildMembersChunk')
-    def on_new_member_chunk(self, event: GuildMembersChunk, *args, **kwargs):
+    def on_member_chunk(self, event: GuildMembersChunk, *args, **kwargs):
         log.info('(%s) got GuildMembersChunk event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.members)
         try:
             pylink_netobj = self.protocol._children[event.guild.name]
         except KeyError:
             log.error("(%s) Could not burst users %s as the parent network object does not exist", self.protocol.name, event.members)
             return
-        else:
-            for member in event.members:
-                self._burst_new_client(event.guild, member, pylink_netobj)
+
+        for member in event.members:
+            self._burst_new_client(event.guild, member, pylink_netobj)
 
     @Plugin.listen('GuildMemberAdd')
-    def on_new_member(self, event: GuildMemberAdd, *args, **kwargs):
+    def on_member_add(self, event: GuildMemberAdd, *args, **kwargs):
         log.info('(%s) got GuildMemberAdd event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.member)
         try:
             pylink_netobj = self.protocol._children[event.guild.name]
         except KeyError:
             log.error("(%s) Could not burst user %s as the parent network object does not exist", self.protocol.name, event.member)
             return
-        else:
+        self._burst_new_client(event.guild, event.member, pylink_netobj)
+
+    @Plugin.listen('GuildMemberUpdate')
+    def on_member_update(self, event: GuildMemberUpdate, *args, **kwargs):
+        log.info('(%s) got GuildMemberUpdate event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.member)
+        try:
+            pylink_netobj = self.protocol._children[event.guild.name]
+        except KeyError:
+            log.error("(%s) Could not update user %s as the parent network object does not exist", self.protocol.name, event.member)
+            return
+
+        pylink_user = pylink_netobj.users.get(event.member.id)
+        if not pylink_user:
             self._burst_new_client(event.guild, event.member, pylink_netobj)
+            return
+
+        # Handle NICK changes
+        oldnick = pylink_user.nick
+        if pylink_user.nick != event.member.name:
+            pylink_user.nick = event.member.name
+            pylink_netobj.call_hooks([event.member.id, 'NICK', {'newnick': event.member.name, 'oldnick': oldnick}])
 
     @Plugin.listen('GuildMemberRemove')
     def on_member_remove(self, event: GuildMemberRemove, *args, **kwargs):
@@ -186,11 +208,11 @@ class DiscordBotPlugin(Plugin):
         except KeyError:
             log.error("(%s) Could not remove user %s as the parent network object does not exist", self.protocol.name, event.user)
             return
-        else:
-            if event.user.id in pylink_netobj.users:
-                pylink_netobj._remove_client(event.user.id)
-                # XXX: make the message configurable
-                pylink_netobj.call_hooks([event.user.id, 'QUIT', {'text': 'User left the guild'}])
+
+        if event.user.id in pylink_netobj.users:
+            pylink_netobj._remove_client(event.user.id)
+            # XXX: make the message configurable
+            pylink_netobj.call_hooks([event.user.id, 'QUIT', {'text': 'User left the guild'}])
 
     @Plugin.listen('MessageCreate')
     def on_message(self, event: MessageCreate, *args, **kwargs):
