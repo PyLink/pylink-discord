@@ -58,8 +58,10 @@ class DiscordBotPlugin(Plugin):
     def on_ready(self, event, *args, **kwargs):
         self.client.gw.ws.emitter.on('on_close', self.protocol.websocket_close, priority=Priority.BEFORE)
         self.botuser = event.user.id
-
-        log.info('(%s) got ready event', self.protocol.name)
+        log.info('(%s) got ready event, starting messaging thread', self.protocol.name)
+        self._message_thread = threading.Thread(name="Messaging thread for %s" % self.name,
+                                                target=self.protocol._message_builder, daemon=True)
+        self._message_thread.start()
         self.protocol.connected.set()
 
     def _burst_guild(self, guild):
@@ -402,16 +404,10 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
     def connect(self):
         self._aborted.clear()
-        self._message_thread = threading.Thread(name="Message thread for %s" % self.name,
-                                                target=self._message_builder, daemon=True)
-        self._message_thread.start()
-
         self.client.run()
 
     def websocket_close(self, *_, **__):
-        return self.disconnect()
-
-    def disconnect(self):
+        """Handles disconnections from Discord."""
         self._aborted.set()
 
         self._pre_disconnect()
@@ -419,13 +415,9 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         children = self._children.copy()
         for child in children:
             self._remove_child(child)
-
-        if world.shutting_down.is_set():
-            self.bot.client.gw.shutting_down = True
-        log.debug('(%s) Sending Discord logout', self.name)
-        self.bot.client.gw.session_id = None
-        self.bot.client.gw.ws.close()
-
         self._post_disconnect()
+
+    def disconnect(self):
+        raise NotImplementedError
 
 Class = PyLinkDiscordProtocol
