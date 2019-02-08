@@ -56,7 +56,6 @@ class DiscordBotPlugin(Plugin):
 
     @Plugin.listen('Ready')
     def on_ready(self, event, *args, **kwargs):
-        self.client.gw.ws.emitter.on('on_close', self.protocol.websocket_close, priority=Priority.BEFORE)
         self.botuser = event.user.id
         log.info('(%s) got ready event, starting messaging thread', self.protocol.name)
         self._message_thread = threading.Thread(name="Messaging thread for %s" % self.name,
@@ -428,7 +427,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         self._aborted.clear()
         self.client.run()
 
-    def websocket_close(self, *_, **__):
+    def disconnect(self):
         """Handles disconnections from Discord."""
         self._aborted.set()
 
@@ -437,9 +436,10 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         children = self._children.copy()
         for child in children:
             self._remove_child(child)
-        self._post_disconnect()
 
-    def disconnect(self):
-        raise NotImplementedError
+        self.client.gw.shutting_down = True
+        self.client.gw.ws.close()
+
+        self._post_disconnect()
 
 Class = PyLinkDiscordProtocol
