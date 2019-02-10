@@ -143,6 +143,10 @@ class DiscordBotPlugin(Plugin):
                                 # which tend to set +ao, +o, ... instead of +ohv, +aohv
                                 break
 
+                    # Optionally, burst the server owner as IRC owner
+                    if self.protocol.serverdata.get('show_owner_status', True) and member.id == guild.owner_id:
+                        modes.append(('+q', uid))
+
                     if modes:
                         pylink_netobj.apply_modes(pylink_channame, modes)
 
