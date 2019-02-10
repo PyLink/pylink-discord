@@ -17,8 +17,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 import calendar
 import operator
-from collections import defaultdict
-from functools import reduce
+import collections
 
 import websocket
 from disco.bot import Bot, BotConfig
@@ -47,7 +46,6 @@ class DiscordBotPlugin(Plugin):
         'op': Permissions.BAN_MEMBERS,
         'admin': Permissions.ADMINISTRATOR
     }
-    ALL_PERMS = reduce(operator.ior, Permissions.values_)
     botuser = None
 
     def __init__(self, protocol, bot, config):
@@ -113,6 +111,7 @@ class DiscordBotPlugin(Plugin):
                 }
             ])
 
+        guild_permissions = guild.get_permissions(member)
         # Calculate which channels the user belongs to
         for channel in guild.channels.values():
             if channel.type == ChannelType.GUILD_TEXT:
@@ -125,7 +124,6 @@ class DiscordBotPlugin(Plugin):
                 # We consider a user to be "in a channel" if they are allowed to read messages there
                 # XXX we shouldn't need to check both??
                 channel_permissions = channel.get_permissions(member)
-                guild_permissions = guild.get_permissions(member)
                 log.debug('discord: checking if member %s has permission read_messages on %s/%s: %s',
                           member, channel.id, pylink_channame, channel_permissions.can(Permissions.READ_MESSAGES))
                 log.debug('discord: checking if member %s has permission read_messages on guild %s/%s: %s',
@@ -382,7 +380,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
     def _message_builder(self):
         current_channel_senders = {}
-        joined_messages = defaultdict(dict)
+        joined_messages = collections.defaultdict(dict)
         while not self._aborted.is_set():
             try:
                 message = self.message_queue.get(timeout=BATCH_DELAY)
@@ -402,8 +400,8 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             except queue.Empty:
                 for channel, message_info in joined_messages.items():
                     self.flush(channel, message_info)
-                joined_messages = defaultdict(dict)
-                current_channel_senders = {}
+                joined_messages.clear()
+                current_channel_senders.clear()
 
     def flush(self, channel, message_info):
         message_text = message_info.pop('text', '').strip()
@@ -425,7 +423,6 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             raise ValueError("Attempting to reintroduce network with name %r" % name)
         child = DiscordServer(name, self, server_id)
         world.networkobjects[name] = self._children[name] = child
-        child.prefixmodes = self.prefixmodes
         return child
 
     def _remove_child(self, name):
