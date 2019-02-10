@@ -32,7 +32,7 @@ from disco.types.permissions import Permissions
 from holster.emitter import Priority
 from pylinkirc.classes import *
 from pylinkirc.log import log
-from pylinkirc.protocols.clientbot import ClientbotWrapperProtocol
+from pylinkirc.protocols.clientbot import ClientbotBaseProtocol
 
 from ._discord_formatter import I2DFormatter
 
@@ -246,7 +246,7 @@ class DiscordBotPlugin(Plugin):
             pylink_netobj = self.protocol._children[subserver]
             pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': message.content}])
 
-class DiscordServer(ClientbotWrapperProtocol):
+class DiscordServer(ClientbotBaseProtocol):
     S2S_BUFSIZE = 0
 
     def __init__(self, name, parent, server_id):
@@ -309,6 +309,12 @@ class DiscordServer(ClientbotWrapperProtocol):
         log.debug('(%s) Ignoring attempt to send raw data via child network object', self.name)
         return
 
+    @staticmethod
+    def wrap_message(source, target, text):
+        """
+        STUB: returns the message text wrapped onto multiple lines.
+        """
+        return [text]
 
 class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
     S2S_BUFSIZE = 0
@@ -367,6 +373,13 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         else:
             raise KeyError("Unknown entity ID %s" % str(entityid))
 
+    @staticmethod
+    def wrap_message(source, target, text):
+        """
+        STUB: returns the message text wrapped onto multiple lines.
+        """
+        return [text]
+
     def _message_builder(self):
         current_channel_senders = {}
         joined_messages = defaultdict(dict)
@@ -412,6 +425,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             raise ValueError("Attempting to reintroduce network with name %r" % name)
         child = DiscordServer(name, self, server_id)
         world.networkobjects[name] = self._children[name] = child
+        child.prefixmodes = self.prefixmodes
         return child
 
     def _remove_child(self, name):
