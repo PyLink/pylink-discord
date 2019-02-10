@@ -40,12 +40,15 @@ websocket.enableTrace(True)
 BATCH_DELAY = 0.3  # TODO: make this configurable
 
 class DiscordBotPlugin(Plugin):
-    irc_discord_perm_mapping = {
-        'voice': Permissions.SEND_MESSAGES,
-        'halfop': Permissions.KICK_MEMBERS,
-        'op': Permissions.BAN_MEMBERS,
-        'admin': Permissions.ADMINISTRATOR
-    }
+    # TODO: maybe this could be made configurable?
+    # N.B. iteration order matters: we stop adding lower modes once someone has +o, much like
+    #      real services
+    irc_discord_perm_mapping = collections.OrderedDict(
+        [('admin', Permissions.ADMINISTRATOR),
+         ('op', Permissions.BAN_MEMBERS),
+         ('halfop', Permissions.KICK_MEMBERS),
+         ('voice', Permissions.SEND_MESSAGES),
+        ])
     botuser = None
 
     def __init__(self, protocol, bot, config):
@@ -135,6 +138,11 @@ class DiscordBotPlugin(Plugin):
                     for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
                         if channel_permissions.can(discord_permission) or guild_permissions.can(discord_permission):
                             modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
+                            if irc_mode == 'op':
+                                # Stop adding lesser modes once we find an op; this reflects IRC services
+                                # which tend to set +ao, +o, ... instead of +ohv, +aohv
+                                break
+
                     if modes:
                         pylink_netobj.apply_modes(pylink_channame, modes)
 
@@ -219,6 +227,10 @@ class DiscordBotPlugin(Plugin):
                    # If the user now has the permission but not the mode, add it to the mode list
                    if has_perm and uid not in prefixlist:
                        modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
+                       if irc_mode == 'op':
+                           # Stop adding lesser modes once we find an op; this reflects IRC services
+                           # which tend to set +ao, +o, ... instead of +ohv, +aohv
+                           break
                    # If the user had the permission removed, remove it from the mode list
                    elif (not has_perm) and uid in prefixlist:
                        modes.append(('-%s' % pylink_netobj.cmodes[irc_mode], uid))
