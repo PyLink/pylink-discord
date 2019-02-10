@@ -186,7 +186,8 @@ class DiscordBotPlugin(Plugin):
             log.error("(%s) Could not update user %s as the parent network object does not exist", self.protocol.name, event.member)
             return
 
-        pylink_user = pylink_netobj.users.get(event.member.id)
+        uid = event.member.id
+        pylink_user = pylink_netobj.users.get(uid)
         if not pylink_user:
             self._burst_new_client(event.guild, event.member, pylink_netobj)
             return
@@ -195,7 +196,38 @@ class DiscordBotPlugin(Plugin):
         oldnick = pylink_user.nick
         if pylink_user.nick != event.member.name:
             pylink_user.nick = event.member.name
-            pylink_netobj.call_hooks([event.member.id, 'NICK', {'newnick': event.member.name, 'oldnick': oldnick}])
+            pylink_netobj.call_hooks([uid, 'NICK', {'newnick': event.member.name, 'oldnick': oldnick}])
+
+        # Relay permission changes as modes
+        guild_permissions = event.guild.get_permissions(event.member)
+        for channel in event.guild.channels.values():
+           if channel.type == ChannelType.GUILD_TEXT:
+               pylink_channame = '#' + channel.name
+               if pylink_channame not in pylink_netobj.channels:
+                   log.warning("(%s) Possible desync? Can't update modes on channel %s/%s because it does not exist in the PyLink state",
+                               pylink_netobj.name, channel.id, pylink_channame)
+                   continue
+
+               c = pylink_netobj.channels[pylink_channame]
+               channel_permissions = channel.get_permissions(event.member)
+               modes = []
+
+               for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
+                   prefixlist = c.prefixmodes[irc_mode] # irc.prefixmodes['op'] etc.
+                   has_perm = channel_permissions.can(discord_permission) or guild_permissions.can(discord_permission)
+
+                   # If the user now has the permission but not the mode, add it to the mode list
+                   if has_perm and uid not in prefixlist:
+                       modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
+                   # If the user had the permission removed, remove it from the mode list
+                   elif (not has_perm) and uid in prefixlist:
+                       modes.append(('-%s' % pylink_netobj.cmodes[irc_mode], uid))
+
+               if modes:
+                   pylink_netobj.apply_modes(pylink_channame, modes)
+                   log.debug('(%s) Relaying permission changes on %s/%s as modes: %s', self.protocol.name, event.member.name,
+                             pylink_channame, pylink_netobj.join_modes(modes))
+                   pylink_netobj.call_hooks([None, 'MODE', {'target': pylink_channame, 'modes': modes}])
 
     @Plugin.listen('GuildMemberRemove')
     def on_member_remove(self, event: GuildMemberRemove, *args, **kwargs):
