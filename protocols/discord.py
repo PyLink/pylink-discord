@@ -33,7 +33,7 @@ from pylinkirc.classes import *
 from pylinkirc.log import log
 from pylinkirc.protocols.clientbot import ClientbotBaseProtocol
 
-from ._discord_formatter import I2DFormatter
+from ._discord_formatter import I2DFormatter, D2IFormatter
 
 websocket.enableTrace(True)
 
@@ -254,6 +254,16 @@ class DiscordBotPlugin(Plugin):
             # XXX: make the message configurable
             pylink_netobj.call_hooks([event.user.id, 'QUIT', {'text': 'User left the guild'}])
 
+    @staticmethod
+    def _format_embed(embed):
+        return '%s - %s (%s) \x02<%s>\x02' % (embed.title, embed.description, embed.description, embed.url)
+
+    @staticmethod
+    def _format_attachment(attachment):
+        # TODO: humanize attachment sizes
+        #return 'Attachment: %s (%s) \x02<%s>\x02' % (attachment.filename, attachment.size, attachment.proxy_url)
+        return 'Attachment: %s \x02<%s>\x02' % (attachment.filename, attachment.url)
+
     @Plugin.listen('MessageCreate')
     def on_message(self, event: MessageCreate, *args, **kwargs):
         message = event.message
@@ -285,7 +295,17 @@ class DiscordBotPlugin(Plugin):
 
         if subserver:
             pylink_netobj = self.protocol._children[subserver]
-            pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': message.content}])
+            text = message.with_proper_mentions  # Translate mentions to their names
+            text = D2IFormatter().format(text)  # Translate IRC formatting to Discord
+
+            _send = lambda text: pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': text}])
+
+            _send(text)
+            # Throw in each embed and attachment as a separate IRC line
+            for embed in message.embeds:
+                _send(self._format_embed(embed))
+            for attachment in message.attachments.values():
+                _send(self._format_attachment(attachment))
 
 class DiscordServer(ClientbotBaseProtocol):
     S2S_BUFSIZE = 0

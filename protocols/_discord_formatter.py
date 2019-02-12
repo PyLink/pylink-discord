@@ -82,12 +82,7 @@ class D2IFormatter():
 
     def format(self, message):
         message = self.sanitize(message)
-        if not self.doformat:
-            return message
-
-        """
-        Surround formatted groups with IRC flags based on matching regex
-        """
+        # Surround formatted groups with IRC flags based on matching regex
         for rule in self.rules:
             regex = self.syntax[rule]['re']
             m = regex.search(message)
