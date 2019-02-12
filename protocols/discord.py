@@ -119,7 +119,7 @@ class DiscordBotPlugin(Plugin):
         for channel in guild.channels.values():
             if channel.type == ChannelType.GUILD_TEXT:
                 modes = []
-                pylink_channame = '#' + channel.name
+                pylink_channame = str(channel)
                 # Automatically create a channel if not present
                 pylink_channel = pylink_netobj._channels[pylink_channame]
                 pylink_channel.discord_channel = channel
@@ -209,7 +209,7 @@ class DiscordBotPlugin(Plugin):
         # Relay permission changes as modes
         for channel in event.guild.channels.values():
            if channel.type == ChannelType.GUILD_TEXT:
-               pylink_channame = '#' + channel.name
+               pylink_channame = str(channel)
                if pylink_channame not in pylink_netobj.channels:
                    log.warning("(%s) Possible desync? Can't update modes on channel %s/%s because it does not exist in the PyLink state",
                                pylink_netobj.name, channel.id, pylink_channame)
@@ -291,7 +291,7 @@ class DiscordBotPlugin(Plugin):
         else:
             subserver = message.guild.id
             # For plugins, route channel targets to the name instead of ID
-            target = '#' + message.channel.name
+            target = str(message.channel)
 
         if subserver:
             pylink_netobj = self.protocol._children[subserver]
@@ -429,7 +429,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                 return entityid.split('@', 1)[0]
 
         if self.is_channel(entityid):
-            return '#' + self.bot_plugin.state.channels[entityid].name
+            return str(self.bot_plugin.state.channels[entityid])
         elif entityid in self.bot_plugin.state.users:
             return self.bot_plugin.state.users[entityid].username
         elif self.is_server_name(entityid):
