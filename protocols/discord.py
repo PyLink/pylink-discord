@@ -295,9 +295,18 @@ class DiscordBotPlugin(Plugin):
 
         if subserver:
             pylink_netobj = self.protocol._children[subserver]
-            text = message.with_proper_mentions  # Translate mentions to their names
-            text = D2IFormatter().format(text)  # Translate IRC formatting to Discord
+            def format_user_mentions(u):
+                # Try to find the user's guild nick, falling back to the user if that fails
+                if message.guild and u.id in message.guild.members:
+                    return '@' + message.guild.members[u.id].name
+                else:
+                    return '@' + str(u)
 
+            # Translate mention IDs to their names
+            text = message.replace_mentions(user_replace=format_user_mentions,
+                                            role_replace=lambda r: '@' + str(r),
+                                            channel_replace=str)
+            text = D2IFormatter().format(text)  # Translate IRC formatting to Discord
             _send = lambda text: pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': text}])
 
             _send(text)
