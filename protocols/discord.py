@@ -171,7 +171,7 @@ class DiscordBotPlugin(Plugin):
     def on_member_chunk(self, event: GuildMembersChunk, *args, **kwargs):
         log.info('(%s) got GuildMembersChunk event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.members)
         try:
-            pylink_netobj = self.protocol._children[event.guild.name]
+            pylink_netobj = self.protocol._children[event.guild.id]
         except KeyError:
             log.error("(%s) Could not burst users %s as the parent network object does not exist", self.protocol.name, event.members)
             return
@@ -183,7 +183,7 @@ class DiscordBotPlugin(Plugin):
     def on_member_add(self, event: GuildMemberAdd, *args, **kwargs):
         log.info('(%s) got GuildMemberAdd event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.member)
         try:
-            pylink_netobj = self.protocol._children[event.guild.name]
+            pylink_netobj = self.protocol._children[event.guild.id]
         except KeyError:
             log.error("(%s) Could not burst user %s as the parent network object does not exist", self.protocol.name, event.member)
             return
@@ -193,7 +193,7 @@ class DiscordBotPlugin(Plugin):
     def on_member_update(self, event: GuildMemberUpdate, *args, **kwargs):
         log.info('(%s) got GuildMemberUpdate event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.member)
         try:
-            pylink_netobj = self.protocol._children[event.guild.name]
+            pylink_netobj = self.protocol._children[event.guild.id]
         except KeyError:
             log.error("(%s) Could not update user %s as the parent network object does not exist", self.protocol.name, event.member)
             return
@@ -249,7 +249,7 @@ class DiscordBotPlugin(Plugin):
     def on_member_remove(self, event: GuildMemberRemove, *args, **kwargs):
         log.info('(%s) got GuildMemberRemove event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.user)
         try:
-            pylink_netobj = self.protocol._children[event.guild.name]
+            pylink_netobj = self.protocol._children[event.guild.id]
         except KeyError:
             log.error("(%s) Could not remove user %s as the parent network object does not exist", self.protocol.name, event.user)
             return
@@ -272,10 +272,10 @@ class DiscordBotPlugin(Plugin):
         if not message.guild:
             # This is a DM
             # see if we've seen this user on any of our servers
-            for server in self.protocol._children.values():
+            for discord_sid, server in self.protocol._children.items():
                 if message.author.id in server.users:
                     target = self.botuser
-                    subserver = server.name
+                    subserver = discord_sid
                     #server.users[message.author.id].dm_channel = message.channel
                     #server._channels[message.channel.id] = c  # Create a new channel
                     #c.discord_channel = message.channel
@@ -284,7 +284,7 @@ class DiscordBotPlugin(Plugin):
             if not (subserver or target):
                 return
         else:
-            subserver = message.guild.name
+            subserver = message.guild.id
             # For plugins, route channel targets to the name instead of ID
             target = '#' + message.channel.name
 
@@ -473,16 +473,16 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         if name in world.networkobjects:
             raise ValueError("Attempting to reintroduce network with name %r" % name)
         child = DiscordServer(name, self, server_id)
-        world.networkobjects[name] = self._children[name] = child
+        world.networkobjects[name] = self._children[server_id] = child
         return child
 
-    def _remove_child(self, name):
+    def _remove_child(self, name, server_id):
         """
         Removes a virtual network object with the given name.
         """
-        pylink_netobj = self._children[name]
+        pylink_netobj = self._children[server_id]
         pylink_netobj.call_hooks([None, 'PYLINK_DISCONNECT', {}])
-        del self._children[name]
+        del self._children[server_id]
         del world.networkobjects[name]
 
     def connect(self):
