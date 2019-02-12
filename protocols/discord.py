@@ -495,7 +495,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         self.client.run()
 
     def disconnect(self):
-        """Handles disconnections from Discord."""
+        """Disconnects from Discord and shuts down this network object."""
         self._aborted.set()
 
         self._pre_disconnect()
