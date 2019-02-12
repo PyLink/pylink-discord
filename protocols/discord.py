@@ -45,7 +45,7 @@ class DiscordBotPlugin(Plugin):
     #      real services
     irc_discord_perm_mapping = collections.OrderedDict(
         [('admin', Permissions.ADMINISTRATOR),
-         ('op', Permissions.BAN_MEMBERS),
+         ('op', Permissions.MANAGE_MESSAGES),
          ('halfop', Permissions.KICK_MEMBERS),
          ('voice', Permissions.SEND_MESSAGES),
         ])
