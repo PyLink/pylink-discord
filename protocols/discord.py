@@ -95,6 +95,7 @@ class DiscordBotPlugin(Plugin):
                                                           ident=username, realname=realname,
                                                           host='discord/user/%s' % tag, # XXX make this configurable
                                                           ts=calendar.timegm(member.joined_at.timetuple()), uid=uid, server=guild.id)
+            pylink_user.modes.add(('i', None))
             pylink_user.discord_user = member
 
             if uid == self.botuser:
