@@ -115,7 +115,6 @@ class DiscordBotPlugin(Plugin):
                 }
             ])
 
-        guild_permissions = guild.get_permissions(member)
         # Calculate which channels the user belongs to
         for channel in guild.channels.values():
             if channel.type == ChannelType.GUILD_TEXT:
@@ -125,19 +124,15 @@ class DiscordBotPlugin(Plugin):
                 pylink_channel = pylink_netobj._channels[pylink_channame]
                 pylink_channel.discord_channel = channel
 
-                # We consider a user to be "in a channel" if they are allowed to read messages there
-                # XXX we shouldn't need to check both??
                 channel_permissions = channel.get_permissions(member)
                 log.debug('discord: checking if member %s has permission read_messages on %s/%s: %s',
                           member, channel.id, pylink_channame, channel_permissions.can(Permissions.READ_MESSAGES))
-                log.debug('discord: checking if member %s has permission read_messages on guild %s/%s: %s',
-                          member, guild.id, guild.name, guild_permissions.can(Permissions.READ_MESSAGES))
-                if channel_permissions.can(Permissions.read_messages) or guild_permissions.can(Permissions.READ_MESSAGES):
+                if channel_permissions.can(Permissions.read_messages):
                     pylink_user.channels.add(pylink_channame)
                     pylink_channel.users.add(uid)
 
                     for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
-                        if channel_permissions.can(discord_permission) or guild_permissions.can(discord_permission):
+                        if channel_permissions.can(discord_permission):
                             modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
                             if irc_mode == 'op':
                                 # Stop adding lesser modes once we find an op; this reflects IRC services
@@ -212,7 +207,6 @@ class DiscordBotPlugin(Plugin):
             pylink_netobj.call_hooks([uid, 'NICK', {'newnick': event.member.name, 'oldnick': oldnick}])
 
         # Relay permission changes as modes
-        guild_permissions = event.guild.get_permissions(event.member)
         for channel in event.guild.channels.values():
            if channel.type == ChannelType.GUILD_TEXT:
                pylink_channame = '#' + channel.name
@@ -227,16 +221,16 @@ class DiscordBotPlugin(Plugin):
 
                for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
                    prefixlist = c.prefixmodes[irc_mode] # irc.prefixmodes['op'] etc.
-                   has_perm = channel_permissions.can(discord_permission) or guild_permissions.can(discord_permission)
-
-                   # If the user now has the permission but not the mode, add it to the mode list
-                   if has_perm and uid not in prefixlist:
-                       modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
+                   # If the user now has the permission but not the associated mode, add it to the mode list
+                   has_perm = channel_permissions.can(discord_permission)
+                   if has_perm:
+                       if uid not in prefixlist:
+                           modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
                        if irc_mode == 'op':
                            # Stop adding lesser modes once we find an op; this reflects IRC services
                            # which tend to set +ao, +o, ... instead of +ohv, +aohv
                            break
-                   # If the user had the permission removed, remove it from the mode list
+                   # If the user had a permission removed, remove its associated mode from the mode list
                    elif (not has_perm) and uid in prefixlist:
                        modes.append(('-%s' % pylink_netobj.cmodes[irc_mode], uid))
 
