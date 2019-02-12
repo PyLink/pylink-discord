@@ -19,7 +19,6 @@ import calendar
 import operator
 import collections
 
-import websocket
 from disco.bot import Bot, BotConfig
 from disco.bot import Plugin
 from disco.client import Client, ClientConfig
@@ -34,8 +33,6 @@ from pylinkirc.log import log
 from pylinkirc.protocols.clientbot import ClientbotBaseProtocol
 
 from ._discord_formatter import I2DFormatter, D2IFormatter
-
-websocket.enableTrace(True)
 
 BATCH_DELAY = 0.3  # TODO: make this configurable
 
