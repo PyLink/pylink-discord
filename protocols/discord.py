@@ -66,7 +66,7 @@ class DiscordBotPlugin(Plugin):
 
     def _burst_guild(self, guild):
         log.info('(%s) bursting guild %s/%s', self.protocol.name, guild.id, guild.name)
-        pylink_netobj = self.protocol._create_child(guild.name, guild.id)
+        pylink_netobj = self.protocol._create_child(guild.id)
         pylink_netobj.uplink = None
 
         for member in guild.members.values():
@@ -466,10 +466,14 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             else:
                 channel.send_message(message_text)
 
-    def _create_child(self, name, server_id):
+    def _create_child(self, server_id):
         """
         Creates a virtual network object for a server with the given name.
         """
+        # Try to find a predefined server name; if that fails, use the server id
+        fallback_name = 'd%d' % server_id
+        name = self.serverdata.get('server_names', {}).get(server_id, fallback_name)
+
         if name in world.networkobjects:
             raise ValueError("Attempting to reintroduce network with name %r" % name)
         child = DiscordServer(name, self, server_id)
