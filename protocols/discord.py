@@ -63,7 +63,7 @@ class DiscordBotPlugin(Plugin):
 
     def _burst_guild(self, guild):
         log.info('(%s) bursting guild %s/%s', self.protocol.name, guild.id, guild.name)
-        pylink_netobj = self.protocol._create_child(guild.id)
+        pylink_netobj = self.protocol._create_child(guild.id, guild.name)
         pylink_netobj.uplink = None
 
         for member in guild.members.values():
@@ -321,8 +321,8 @@ class DiscordBotPlugin(Plugin):
 class DiscordServer(ClientbotBaseProtocol):
     S2S_BUFSIZE = 0
 
-    def __init__(self, name, parent, server_id):
-        conf.conf['servers'][name] = {}
+    def __init__(self, name, parent, server_id, guild_name):
+        conf.conf['servers'][name] = {'netname': 'Discord/%s' % guild_name}
         super().__init__(name)
         self.virtual_parent = parent
         self.sidgen = PUIDGenerator('DiscordInternalSID')
@@ -492,17 +492,19 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             else:
                 channel.send_message(message_text)
 
-    def _create_child(self, server_id):
+    def _create_child(self, server_id, guild_name):
         """
         Creates a virtual network object for a server with the given name.
         """
-        # Try to find a predefined server name; if that fails, use the server id
+        # Try to find a predefined server name; if that fails, use the server id.
+        # We don't use the guild name here because those can be changed at any time,
+        # confusing plugins that store data by PyLink network names.
         fallback_name = 'd%d' % server_id
         name = self.serverdata.get('server_names', {}).get(server_id, fallback_name)
 
         if name in world.networkobjects:
             raise ValueError("Attempting to reintroduce network with name %r" % name)
-        child = DiscordServer(name, self, server_id)
+        child = DiscordServer(name, self, server_id, guild_name)
         world.networkobjects[name] = self._children[server_id] = child
         return child
 
