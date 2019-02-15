@@ -72,6 +72,100 @@ class DiscordBotPlugin(Plugin):
         pylink_netobj.connected.set()
         pylink_netobj.call_hooks([None, 'ENDBURST', {}])
 
+    def _update_channel_presence(self, guild, channel, member=None, *, relay_modes=False):
+        """
+        Updates channel presence & IRC modes for the given member, or all guild members if not given.
+        """
+        modes = []
+        users_joined = []
+
+        try:
+            pylink_netobj = self.protocol._children[guild.id]
+        except KeyError:
+            log.error("(%s) Could not update channel %s(%s)/%s as the parent network object does not exist", self.protocol.name, guild.id, guild.name, str(channel))
+            return
+
+        pylink_channame = str(channel)
+        # Automatically create a channel if not present
+        pylink_channel = pylink_netobj._channels[pylink_channame]
+        pylink_channel.discord_channel = channel
+
+        if member is None:
+            members = guild.members.values()
+        else:
+            members = [member]
+
+        for member in members:
+            uid = member.id
+            try:
+                pylink_user = pylink_netobj.users[uid]
+            except KeyError:
+                log.error("(%s) Could not update user %s(%s)/%s as the user object does not exist", self.protocol.name, guild.id, guild.name, uid)
+                continue
+
+            channel_permissions = channel.get_permissions(member)
+            has_perm = channel_permissions.can(Permissions.read_messages)
+            log.debug('discord: checking if member %s/%s has permission read_messages on %s/%s: %s',
+                      member.id, member, channel.id, pylink_channame, has_perm)
+            #log.debug('discord: channel permissions are %s', str(channel_permissions.to_dict()))
+            if has_perm:
+                if uid not in pylink_channel.users:
+                    log.debug('discord: joining member %s to %s/%s', member, channel.id, pylink_channame)
+                    pylink_user.channels.add(pylink_channame)
+                    pylink_channel.users.add(uid)
+                    users_joined.append(uid)
+
+                for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
+                    prefixlist = pylink_channel.prefixmodes[irc_mode] # channel.prefixmodes['op'] etc.
+                    # If the user now has the permission but not the associated mode, add it to the mode list
+                    has_op_perm = channel_permissions.can(discord_permission)
+                    if has_op_perm:
+                        modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
+                        if irc_mode == 'op':
+                            # Stop adding lesser modes once we find an op; this reflects IRC services
+                            # which tend to set +ao, +o, ... instead of +ohv, +aohv
+                            break
+                    elif (not has_op_perm) and uid in prefixlist:
+                        modes.append(('-%s' % pylink_netobj.cmodes[irc_mode], uid))
+
+            elif uid in pylink_channel.users and not has_perm:
+                log.debug('discord: parting member %s from %s/%s', member, channel.id, pylink_channame)
+                pylink_user.channels.discard(pylink_channame)
+                pylink_channel.remove_user(uid)
+
+                # We send KICK from a server to prevent triggering antiflood mechanisms...
+                pylink_netobj.call_hooks([
+                    self.protocol.sid,
+                    'KICK',
+                    {
+                        'channel': pylink_channame,
+                        'target': uid,
+                        'text': "User removed from channel"
+                    }
+                ])
+
+            # Optionally, burst the server owner as IRC owner
+            if self.protocol.serverdata.get('show_owner_status', True) and uid == guild.owner_id:
+                modes.append(('+q', uid))
+
+        if modes:
+            pylink_netobj.apply_modes(pylink_channame, modes)
+            log.debug('(%s) Relaying permission changes on %s/%s as modes: %s', self.protocol.name, member.name,
+                     pylink_channame, pylink_netobj.join_modes(modes))
+            if relay_modes:
+                pylink_netobj.call_hooks([None, 'MODE', {'target': pylink_channame, 'modes': modes}])
+
+        if users_joined:
+            pylink_netobj.call_hooks([
+                None,
+                'JOIN',
+                {
+                    'channel': pylink_channame,
+                    'users': users_joined,
+                    'modes': []
+                }
+            ])
+
     def _burst_new_client(self, guild, member, pylink_netobj):
         """Bursts the given member as a new PyLink client."""
         uid = member.id
@@ -115,44 +209,7 @@ class DiscordBotPlugin(Plugin):
         # Calculate which channels the user belongs to
         for channel in guild.channels.values():
             if channel.type == ChannelType.GUILD_TEXT:
-                modes = []
-                pylink_channame = str(channel)
-                # Automatically create a channel if not present
-                pylink_channel = pylink_netobj._channels[pylink_channame]
-                pylink_channel.discord_channel = channel
-
-                channel_permissions = channel.get_permissions(member)
-                log.debug('discord: checking if member %s has permission read_messages on %s/%s: %s',
-                          member, channel.id, pylink_channame, channel_permissions.can(Permissions.READ_MESSAGES))
-                if channel_permissions.can(Permissions.read_messages):
-                    pylink_user.channels.add(pylink_channame)
-                    pylink_channel.users.add(uid)
-
-                    for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
-                        if channel_permissions.can(discord_permission):
-                            modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
-                            if irc_mode == 'op':
-                                # Stop adding lesser modes once we find an op; this reflects IRC services
-                                # which tend to set +ao, +o, ... instead of +ohv, +aohv
-                                break
-
-                    # Optionally, burst the server owner as IRC owner
-                    if self.protocol.serverdata.get('show_owner_status', True) and member.id == guild.owner_id:
-                        modes.append(('+q', uid))
-
-                    if modes:
-                        pylink_netobj.apply_modes(pylink_channame, modes)
-
-                    pylink_netobj.call_hooks([
-                        None,
-                        'JOIN',
-                        {
-                            'channel': pylink_channame,
-                            'users': [uid],
-                            'modes': []
-                        }
-                    ])
-
+                self._update_channel_presence(guild, channel, member)
         return pylink_user
 
     @Plugin.listen('GuildCreate')
@@ -210,37 +267,8 @@ class DiscordBotPlugin(Plugin):
 
         # Relay permission changes as modes
         for channel in event.guild.channels.values():
-           if channel.type == ChannelType.GUILD_TEXT:
-               pylink_channame = str(channel)
-               if pylink_channame not in pylink_netobj.channels:
-                   log.warning("(%s) Possible desync? Can't update modes on channel %s/%s because it does not exist in the PyLink state",
-                               pylink_netobj.name, channel.id, pylink_channame)
-                   continue
-
-               c = pylink_netobj.channels[pylink_channame]
-               channel_permissions = channel.get_permissions(event.member)
-               modes = []
-
-               for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
-                   prefixlist = c.prefixmodes[irc_mode] # irc.prefixmodes['op'] etc.
-                   # If the user now has the permission but not the associated mode, add it to the mode list
-                   has_perm = channel_permissions.can(discord_permission)
-                   if has_perm:
-                       if uid not in prefixlist:
-                           modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
-                       if irc_mode == 'op':
-                           # Stop adding lesser modes once we find an op; this reflects IRC services
-                           # which tend to set +ao, +o, ... instead of +ohv, +aohv
-                           break
-                   # If the user had a permission removed, remove its associated mode from the mode list
-                   elif (not has_perm) and uid in prefixlist:
-                       modes.append(('-%s' % pylink_netobj.cmodes[irc_mode], uid))
-
-               if modes:
-                   pylink_netobj.apply_modes(pylink_channame, modes)
-                   log.debug('(%s) Relaying permission changes on %s/%s as modes: %s', self.protocol.name, event.member.name,
-                             pylink_channame, pylink_netobj.join_modes(modes))
-                   pylink_netobj.call_hooks([None, 'MODE', {'target': pylink_channame, 'modes': modes}])
+            if channel.type == ChannelType.GUILD_TEXT:
+                self._update_channel_presence(event.guild, channel, event.member, relay_modes=True)
 
     @Plugin.listen('GuildMemberRemove')
     def on_member_remove(self, event: GuildMemberRemove, *args, **kwargs):
@@ -255,6 +283,21 @@ class DiscordBotPlugin(Plugin):
             pylink_netobj._remove_client(event.user.id)
             # XXX: make the message configurable
             pylink_netobj.call_hooks([event.user.id, 'QUIT', {'text': 'User left the guild'}])
+
+    @Plugin.listen('ChannelCreate')
+    @Plugin.listen('ChannelUpdate')
+    def on_channel_update(self, event, *args, **kwargs):
+
+        # XXX: disco should be doing this for us?!
+        if event.overwrites:
+            log.debug('discord: resetting channel overrides on %s/%s: %s', event.channel.id, event.channel, event.overwrites)
+            event.channel.overwrites = event.overwrites
+        # Update channel presence via permissions for EVERYONE!
+        self._update_channel_presence(event.channel.guild, event.channel)
+
+    @Plugin.listen('ChannelDelete')
+    def on_channel_delete(self, event, *args, **kwargs):
+        log.warning('discord: channel deletion is not supported yet; you may get unexpected results!')
 
     @staticmethod
     def _format_embed(embed):
