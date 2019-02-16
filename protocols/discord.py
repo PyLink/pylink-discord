@@ -211,6 +211,8 @@ class DiscordBotPlugin(Plugin):
                                                           host='discord/user/%s' % tag, # XXX make this configurable
                                                           ts=calendar.timegm(member.joined_at.timetuple()), uid=uid, server=guild.id)
             pylink_user.modes.add(('i', None))
+            if member.user.bot:
+                pylink_user.modes.add(('B', None))
             pylink_user.discord_user = member
 
             if uid == self.botuser:
@@ -432,6 +434,7 @@ class DiscordServer(ClientbotBaseProtocol):
         self.casemapping = 'ascii'  # TODO: investigate utf-8 support
         self.cmodes = {'op': 'o', 'halfop': 'h', 'voice': 'v', 'owner': 'q', 'admin': 'a',
                        '*A': '', '*B': '', '*C': '', '*D': ''}
+        self.umodes = {'invisible': 'i', 'bot': 'B'}
         # The actual prefix chars don't matter; we just need to make sure +qaohv are in
         # the prefixmodes list so that the mode internals work properly
         self.prefixmodes = {'q': '~', 'a': '&', 'o': '@', 'h': '%', 'v': '+'}
