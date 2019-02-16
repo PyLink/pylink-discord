@@ -28,6 +28,8 @@ from disco.types.channel import ChannelType
 from disco.types.permissions import Permissions
 #from disco.util.logging import setup_logging
 from holster.emitter import Priority
+
+from pylinkirc import structures
 from pylinkirc.classes import *
 from pylinkirc.log import log
 from pylinkirc.protocols.clientbot import ClientbotBaseProtocol
@@ -35,6 +37,15 @@ from pylinkirc.protocols.clientbot import ClientbotBaseProtocol
 from ._discord_formatter import I2DFormatter, D2IFormatter
 
 BATCH_DELAY = 0.3  # TODO: make this configurable
+
+class DiscordChannelState(structures.CaseInsensitiveDict):
+    @staticmethod
+    def _keymangle(key):
+        try:
+            key = int(key)
+        except ValueError:
+            raise KeyError("Cannot convert channel ID %r to int" % key)
+        return key
 
 class DiscordBotPlugin(Plugin):
     # TODO: maybe this could be made configurable?
@@ -85,9 +96,14 @@ class DiscordBotPlugin(Plugin):
             log.error("(%s) Could not update channel %s(%s)/%s as the parent network object does not exist", self.protocol.name, guild.id, guild.name, str(channel))
             return
 
-        pylink_channame = str(channel)
-        # Automatically create a channel if not present
-        pylink_channel = pylink_netobj._channels[pylink_channame]
+        # Create a new channel if not present
+        try:
+            pylink_channel = pylink_netobj.channels[channel.id]
+            pylink_channel.name = str(channel)
+        except KeyError:
+            pylink_channel = pylink_netobj.channels[channel.id] = Channel(self, name=str(channel))
+
+        pylink_channel.discord_id = channel.id
         pylink_channel.discord_channel = channel
 
         if member is None:
@@ -106,12 +122,12 @@ class DiscordBotPlugin(Plugin):
             channel_permissions = channel.get_permissions(member)
             has_perm = channel_permissions.can(Permissions.read_messages)
             log.debug('discord: checking if member %s/%s has permission read_messages on %s/%s: %s',
-                      member.id, member, channel.id, pylink_channame, has_perm)
+                      member.id, member, channel.id, channel, has_perm)
             #log.debug('discord: channel permissions are %s', str(channel_permissions.to_dict()))
             if has_perm:
                 if uid not in pylink_channel.users:
-                    log.debug('discord: joining member %s to %s/%s', member, channel.id, pylink_channame)
-                    pylink_user.channels.add(pylink_channame)
+                    log.debug('discord: joining member %s to %s/%s', member, channel.id, channel)
+                    pylink_user.channels.add(channel.id)
                     pylink_channel.users.add(uid)
                     users_joined.append(uid)
 
@@ -129,8 +145,8 @@ class DiscordBotPlugin(Plugin):
                         modes.append(('-%s' % pylink_netobj.cmodes[irc_mode], uid))
 
             elif uid in pylink_channel.users and not has_perm:
-                log.debug('discord: parting member %s from %s/%s', member, channel.id, pylink_channame)
-                pylink_user.channels.discard(pylink_channame)
+                log.debug('discord: parting member %s from %s/%s', member, channel.id, channel)
+                pylink_user.channels.discard(channel.id)
                 pylink_channel.remove_user(uid)
 
                 # We send KICK from a server to prevent triggering antiflood mechanisms...
@@ -138,7 +154,7 @@ class DiscordBotPlugin(Plugin):
                     self.protocol.sid,
                     'KICK',
                     {
-                        'channel': pylink_channame,
+                        'channel': channel.id,
                         'target': uid,
                         'text': "User removed from channel"
                     }
@@ -149,18 +165,18 @@ class DiscordBotPlugin(Plugin):
                 modes.append(('+q', uid))
 
         if modes:
-            pylink_netobj.apply_modes(pylink_channame, modes)
+            pylink_netobj.apply_modes(channel.id, modes)
             log.debug('(%s) Relaying permission changes on %s/%s as modes: %s', self.protocol.name, member.name,
-                     pylink_channame, pylink_netobj.join_modes(modes))
+                     channel, pylink_netobj.join_modes(modes))
             if relay_modes:
-                pylink_netobj.call_hooks([None, 'MODE', {'target': pylink_channame, 'modes': modes}])
+                pylink_netobj.call_hooks([None, 'MODE', {'target': channel.id, 'modes': modes}])
 
         if users_joined:
             pylink_netobj.call_hooks([
                 None,
                 'JOIN',
                 {
-                    'channel': pylink_channame,
+                    'channel': channel.id,
                     'users': users_joined,
                     'modes': []
                 }
@@ -297,7 +313,12 @@ class DiscordBotPlugin(Plugin):
 
     @Plugin.listen('ChannelDelete')
     def on_channel_delete(self, event, *args, **kwargs):
-        log.warning('discord: channel deletion is not supported yet; you may get unexpected results!')
+        channel = event.channel
+
+        # Remove the channel from everyone's channel list
+        for u in self.channels[channel].users:
+            self.users[u].channels.discard(channel)
+        del self.channels[channel]
 
     @staticmethod
     def _format_embed(embed):
@@ -327,7 +348,7 @@ class DiscordBotPlugin(Plugin):
                     target = self.botuser
                     subserver = discord_sid
                     #server.users[message.author.id].dm_channel = message.channel
-                    #server._channels[message.channel.id] = c  # Create a new channel
+                    #server.channels[message.channel.id] = c  # Create a new channel
                     #c.discord_channel = message.channel
 
                     break
@@ -335,8 +356,7 @@ class DiscordBotPlugin(Plugin):
                 return
         else:
             subserver = message.guild.id
-            # For plugins, route channel targets to the name instead of ID
-            target = str(message.channel)
+            target = message.channel.id
 
         if subserver:
             pylink_netobj = self.protocol._children[subserver]
@@ -382,6 +402,9 @@ class DiscordServer(ClientbotBaseProtocol):
         # the prefixmodes list so that the mode internals work properly
         self.prefixmodes = {'q': '~', 'a': '&', 'o': '@', 'h': '%', 'v': '+'}
 
+        # Use an instance of DiscordChannelState, which converts string forms of channels to int
+        self._channels = self.channels = DiscordChannelState()
+
     def is_nick(self, *args, **kwargs):
         return self.virtual_parent.is_nick(*args, **kwargs)
 
@@ -403,8 +426,11 @@ class DiscordServer(ClientbotBaseProtocol):
         """Sends messages to the target."""
         if target in self.users:
             discord_target = self.users[target].discord_user.user.open_dm()
-        else:
+        elif target in self.channels:
             discord_target = self.channels[target].discord_channel
+        else:
+            log.error('(%s) Could not find message target for %s', self.name, target)
+            return
 
         message_data = {'target': discord_target, 'sender': source}
         if self.pseudoclient and self.pseudoclient.uid == source:
@@ -416,7 +442,13 @@ class DiscordServer(ClientbotBaseProtocol):
 
     def join(self, client, channel):
         """STUB: Joins a user to a channel."""
-        self._channels[channel].users.add(client)
+        if self.pseudoclient and client == self.pseudoclient.uid:
+            log.debug("(%s) discord: ignoring explicit channel join to %s", self.name, channel)
+            return
+        elif channel not in self.channels:
+            log.warning("(%s) Ignoring attempt to join unknown channel ID %s", self.name, channel)
+            return
+        self.channels[channel].users.add(client)
         self.users[client].channels.add(channel)
 
         log.debug('(%s) join: faking JOIN of client %s/%s to %s', self.name, client,
@@ -458,8 +490,11 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
     def is_channel(self, s):
         """Returns whether the target is a channel."""
-        # Treat Discord channel IDs and names both as channels
-        return s in self.bot_plugin.state.channels or str(s).startswith('#')
+        try:
+            chan = int(s)
+        except ValueError:
+            return False
+        return chan in self.bot_plugin.state.channels
 
     def is_server_name(self, s):
         """Returns whether the string given is a valid IRC server name."""
@@ -469,11 +504,8 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         """
         Returns the friendly name of a SID (the guild name), UID (the nick), or channel (the name).
         """
-        # IRC-style channel link, return as is
-        if isinstance(entityid, str) and entityid.startswith('#'):
-            return entityid
         # internal PUID, handle appropriately
-        elif isinstance(entityid, str) and '@' in entityid:
+        if isinstance(entityid, str) and '@' in entityid:
             if entityid in self.users:
                 return self.users[entityid].nick
             elif caller and entityid in caller.users:
