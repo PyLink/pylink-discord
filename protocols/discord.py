@@ -26,6 +26,7 @@ from disco.gateway.events import *
 from disco.types import Guild, Channel as DiscordChannel, GuildMember, Message
 from disco.types.channel import ChannelType
 from disco.types.permissions import Permissions
+from disco.types.user import Status as DiscordStatus
 #from disco.util.logging import setup_logging
 from holster.emitter import Priority
 
@@ -58,6 +59,13 @@ class DiscordBotPlugin(Plugin):
          ('voice', Permissions.SEND_MESSAGES),
         ])
     botuser = None
+    status_mapping = {
+        'ONLINE': 'Online',
+        'IDLE': 'Idle',
+        'DND': 'Do Not Disturb',
+        'INVISIBLE': 'Offline',  # not a typo :)
+        'OFFLINE': 'Offline',
+    }
 
     def __init__(self, protocol, bot, config):
         self.protocol = protocol
@@ -226,6 +234,8 @@ class DiscordBotPlugin(Plugin):
         for channel in guild.channels.values():
             if channel.type == ChannelType.GUILD_TEXT:
                 self._update_channel_presence(guild, channel, member)
+        # Update user presence
+        self._update_user_status(guild.id, uid, member.user.presence)
         return pylink_user
 
     @Plugin.listen('GuildCreate')
@@ -380,6 +390,30 @@ class DiscordBotPlugin(Plugin):
                 _send(self._format_embed(embed))
             for attachment in message.attachments.values():
                 _send(self._format_attachment(attachment))
+
+    def _update_user_status(self, guild_id, user, presence):
+        """Handles a Discord presence update."""
+        pylink_netobj = self.protocol._children.get(guild_id)
+        if pylink_netobj:
+            u = pylink_netobj.users[user]
+            # It seems that presence updates are not sent at all for offline users, so they
+            # turn into an unset field in disco. I guess this makes sense for saving bandwidth?
+            if presence:
+                status = presence.status
+            else:
+                status = DiscordStatus.OFFLINE
+
+            if status != DiscordStatus.ONLINE:
+                awaymsg = self.status_mapping.get(status.value, 'Unknown Status')
+            else:
+                awaymsg = ''
+
+            u.away = awaymsg
+            pylink_netobj.call_hooks([user, 'AWAY', {'text': awaymsg}])
+
+    @Plugin.listen('PresenceUpdate')
+    def on_presence_update(self, event, *args, **kwargs):
+        self._update_user_status(event.guild_id, event.presence.user.id, event.presence)
 
 class DiscordServer(ClientbotBaseProtocol):
     S2S_BUFSIZE = 0
