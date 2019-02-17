@@ -95,6 +95,18 @@ class DiscordBotPlugin(Plugin):
         """
         Updates channel presence & IRC modes for the given member, or all guild members if not given.
         """
+        if channel.type == ChannelType.GUILD_CATEGORY:
+            # XXX: there doesn't seem to be an easier way to get this. Fortunately, there usually
+            # aren't too many channels in one guild...
+            for subchannel in guild.channels.values():
+                if subchannel.parent_id == channel.id:
+                    log.debug('(%s) _update_channel_presence: checking channel %s/%s in category %s/%s', self.protocol.name, subchannel.id, subchannel, channel.id, channel)
+                    self._update_channel_presence(guild, subchannel, member=member, relay_modes=relay_modes)
+            return
+        elif channel.type != ChannelType.GUILD_TEXT:
+            log.debug('(%s) _update_channel_presence: ignoring non-text channel %s/%s', self.protocol.name, channel.id, channel)
+            return
+
         modes = []
         users_joined = []
 
@@ -315,17 +327,19 @@ class DiscordBotPlugin(Plugin):
     @Plugin.listen('ChannelCreate')
     @Plugin.listen('ChannelUpdate')
     def on_channel_update(self, event, *args, **kwargs):
-
         # XXX: disco should be doing this for us?!
         if event.overwrites:
             log.debug('discord: resetting channel overrides on %s/%s: %s', event.channel.id, event.channel, event.overwrites)
             event.channel.overwrites = event.overwrites
         # Update channel presence via permissions for EVERYONE!
-        self._update_channel_presence(event.channel.guild, event.channel)
+        self._update_channel_presence(event.channel.guild, event.channel, relay_modes=True)
 
     @Plugin.listen('ChannelDelete')
     def on_channel_delete(self, event, *args, **kwargs):
         channel = event.channel
+
+        if channel.id not in self.channels:  # wasn't a type of channel we track
+            return
 
         # Remove the channel from everyone's channel list
         for u in self.channels[channel].users:
