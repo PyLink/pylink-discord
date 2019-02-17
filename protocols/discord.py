@@ -529,7 +529,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         """Returns whether the target is a channel."""
         try:
             chan = int(s)
-        except ValueError:
+        except (TypeError, ValueError):
             return False
         return chan in self.bot_plugin.state.channels
 
