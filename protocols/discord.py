@@ -407,11 +407,15 @@ class DiscordBotPlugin(Plugin):
             for attachment in message.attachments.values():
                 _send(self._format_attachment(attachment))
 
-    def _update_user_status(self, guild_id, user, presence):
+    def _update_user_status(self, guild_id, uid, presence):
         """Handles a Discord presence update."""
         pylink_netobj = self.protocol._children.get(guild_id)
         if pylink_netobj:
-            u = pylink_netobj.users[user]
+            try:
+                u = pylink_netobj.users[uid]
+            except KeyError:
+                log.debug('(%s) _update_user_status: could not fetch user %s', self.protocol.name, uid, exc_info=True)
+                return
             # It seems that presence updates are not sent at all for offline users, so they
             # turn into an unset field in disco. I guess this makes sense for saving bandwidth?
             if presence:
@@ -425,7 +429,7 @@ class DiscordBotPlugin(Plugin):
                 awaymsg = ''
 
             u.away = awaymsg
-            pylink_netobj.call_hooks([user, 'AWAY', {'text': awaymsg}])
+            pylink_netobj.call_hooks([uid, 'AWAY', {'text': awaymsg}])
 
     @Plugin.listen('PresenceUpdate')
     def on_presence_update(self, event, *args, **kwargs):
