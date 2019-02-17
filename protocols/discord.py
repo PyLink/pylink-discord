@@ -159,7 +159,7 @@ class DiscordBotPlugin(Plugin):
 
                 # We send KICK from a server to prevent triggering antiflood mechanisms...
                 pylink_netobj.call_hooks([
-                    self.protocol.sid,
+                    guild.id,
                     'KICK',
                     {
                         'channel': channel.id,
@@ -177,11 +177,11 @@ class DiscordBotPlugin(Plugin):
             log.debug('(%s) Relaying permission changes on %s/%s as modes: %s', self.protocol.name, member.name,
                      channel, pylink_netobj.join_modes(modes))
             if relay_modes:
-                pylink_netobj.call_hooks([None, 'MODE', {'target': channel.id, 'modes': modes}])
+                pylink_netobj.call_hooks([guild.id, 'MODE', {'target': channel.id, 'modes': modes}])
 
         if users_joined:
             pylink_netobj.call_hooks([
-                None,
+                guild.id,
                 'JOIN',
                 {
                     'channel': channel.id,
@@ -219,7 +219,7 @@ class DiscordBotPlugin(Plugin):
                 pylink_netobj.pseudoclient = pylink_user
 
             pylink_netobj.call_hooks([
-                None,
+                guild.id,
                 'UID',
                 {
                     'uid': uid,
@@ -427,7 +427,7 @@ class DiscordServer(ClientbotBaseProtocol):
         self.sidgen = PUIDGenerator('DiscordInternalSID')
         self.uidgen = PUIDGenerator('PUID')
         self.sid = server_id
-        self.servers[self.sid] = Server(self, None, '0.0.0.0', internal=False, desc=name)
+        self.servers[self.sid] = Server(self, None, server_id, internal=False, desc=name)
 
     def _init_vars(self):
         super()._init_vars()
