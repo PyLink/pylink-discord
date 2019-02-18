@@ -19,6 +19,7 @@ import calendar
 import operator
 import collections
 
+from disco.api.http import APIException
 from disco.bot import Bot, BotConfig
 from disco.bot import Plugin
 from disco.client import Client, ClientConfig
@@ -500,6 +501,26 @@ class DiscordServer(ClientbotBaseProtocol):
             self.virtual_parent.message_queue.put_nowait(message_data)
             return
 
+        if self.virtual_parent.serverdata.get('webhooks', False) and self.is_channel(target):
+            try:
+                webhook = self._get_or_create_webhook(self.channels[target])
+            except APIException:
+                log.debug('(%s) _get_or_create_webhook: could not get or create webhook for channel %s. Falling back to standard Clientbot behavior', self.name, target, exc_info=True)
+                webhook = None
+
+            if webhook:
+                try:
+                    remotenet, remoteuser = self.users[source].remote
+                    message_data['webhook'] = webhook
+                    message_data.update(self._get_user_webhook_data(remoteuser, remotenet))
+                    message_data['text'] = I2DFormatter().format(text)
+                    self.virtual_parent.message_queue.put_nowait(message_data)
+                    return
+                except (KeyError, ValueError):
+                    log.debug(
+                        '(%s) failure getting user info for user %s. Falling back to standard Clientbot behavior',
+                        self.name, source, exc_info=True)
+
         self.call_hooks([source, 'CLIENTBOT_MESSAGE', {'target': target, 'is_notice': notice, 'text': text}])
 
     def join(self, client, channel):
@@ -527,6 +548,25 @@ class DiscordServer(ClientbotBaseProtocol):
         STUB: returns the message text wrapped onto multiple lines.
         """
         return [text]
+
+    def _get_or_create_webhook(self, channel):
+        # XXX: Should we cache the webhook object on the channel? If so, what happens if the webhook gets deleted?
+        # XXX: Should the webhook avatar be customizable in the
+        webhook_user = self.serverdata.get('nick') or conf.conf['pylink']['nick']
+        for webhook in channel.discord_channel.get_webhooks():
+            if webhook.name == webhook_user:
+                return webhook
+        return channel.discord_channel.create_webhook(name=webhook_user)
+
+    def _get_user_webhook_data(self, uid, network):
+        # TODO: Maybe make this more customizable
+        # TODO: Allow relayed users to customize their avatar
+        user = world.networkobjects[network].users[uid]
+        separator = self.virtual_parent.serverdata.get('separator') or \
+                    conf.conf.get('relay', {}).get('separator') or '/'
+        return {
+            'username': "{}{}{}".format(user.nick, separator, network)
+        }
 
 class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
     S2S_BUFSIZE = 0
@@ -603,9 +643,9 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                 current_sender = current_channel_senders.get(channel, None)
 
                 # We'll enable this when we work on webhook support again...
-                #if current_sender != message['sender']:
-                #    self.flush(channel, joined_messages[channel])
-                #    joined_messages[channel] = message
+                if current_sender != message['sender']:
+                   self.flush(channel, joined_messages[channel])
+                   joined_messages[channel] = message
 
                 current_channel_senders[channel] = message['sender']
 
