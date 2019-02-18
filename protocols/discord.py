@@ -353,7 +353,12 @@ class DiscordBotPlugin(Plugin):
 
     @staticmethod
     def _format_embed(embed):
-        return '%s - %s (%s) \x02<%s>\x02' % (embed.title, embed.description, embed.description, embed.url)
+        if embed.title and embed.description:
+            return '%s - %s \x02<%s>\x02' % (embed.title, embed.description, embed.url)
+        elif embed.title:
+            return '%s \x02<%s>\x02' % (embed.title, embed.url)
+        else:
+            return embed.url
 
     @staticmethod
     def _format_attachment(attachment):
