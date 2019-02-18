@@ -495,15 +495,14 @@ class DiscordServer(ClientbotBaseProtocol):
             log.error('(%s) Could not find message target for %s', self.name, target)
             return
 
-        message_data = {'target': discord_target, 'sender': source}
+        message_data = {'target': discord_target, 'sender': source, 'text': text}
         if self.pseudoclient and self.pseudoclient.uid == source:
-            message_data['text'] = I2DFormatter().format(text)
             self.virtual_parent.message_queue.put_nowait(message_data)
             return
 
         if self.virtual_parent.serverdata.get('webhooks', False) and self.is_channel(target):
             try:
-                webhook = self._get_or_create_webhook(self.channels[target])
+                webhook = self._get_or_create_webhook(self.channels[target].discord_id)
             except APIException:
                 log.debug('(%s) _get_or_create_webhook: could not get or create webhook for channel %s. Falling back to standard Clientbot behavior', self.name, target, exc_info=True)
                 webhook = None
@@ -513,7 +512,6 @@ class DiscordServer(ClientbotBaseProtocol):
                     remotenet, remoteuser = self.users[source].remote
                     message_data['webhook'] = webhook
                     message_data.update(self._get_user_webhook_data(remoteuser, remotenet))
-                    message_data['text'] = I2DFormatter().format(text)
                     self.virtual_parent.message_queue.put_nowait(message_data)
                     return
                 except (KeyError, ValueError):
@@ -549,14 +547,15 @@ class DiscordServer(ClientbotBaseProtocol):
         """
         return [text]
 
-    def _get_or_create_webhook(self, channel):
+    def _get_or_create_webhook(self, channel_id):
         # XXX: Should we cache the webhook object on the channel? If so, what happens if the webhook gets deleted?
-        # XXX: Should the webhook avatar be customizable in the
+        # XXX: Should the webhook avatar be customizable in the config or should we
+        #      just require that users edit the webhook user in Discord
         webhook_user = self.serverdata.get('nick') or conf.conf['pylink']['nick']
-        for webhook in channel.discord_channel.get_webhooks():
+        for webhook in self.virtual_parent.client.api.channels_webhooks_list(channel_id):
             if webhook.name == webhook_user:
                 return webhook
-        return channel.discord_channel.create_webhook(name=webhook_user)
+        return self.virtual_parent.client.api.channels_webhooks_create(name=webhook_user)
 
     def _get_user_webhook_data(self, uid, network):
         # TODO: Maybe make this more customizable
@@ -639,13 +638,13 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             try:
                 message = self.message_queue.get(timeout=BATCH_DELAY)
                 message_text = message.pop('text', '')
+                message_text = I2DFormatter().format(message_text)
                 channel = message.pop('target')
                 current_sender = current_channel_senders.get(channel, None)
 
-                # We'll enable this when we work on webhook support again...
                 if current_sender != message['sender']:
-                   self.flush(channel, joined_messages[channel])
-                   joined_messages[channel] = message
+                     self.flush(channel, joined_messages[channel])
+                     joined_messages[channel] = message
 
                 current_channel_senders[channel] = message['sender']
 
