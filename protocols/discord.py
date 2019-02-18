@@ -403,7 +403,9 @@ class DiscordBotPlugin(Plugin):
                                             role_replace=lambda r: '@' + str(r),
                                             channel_replace=str)
             text = D2IFormatter().format(text)  # Translate IRC formatting to Discord
-            _send = lambda text: pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': text}])
+            def _send(text):
+                for line in text.splitlines():  # Relay multiline messages as such
+                    pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': line}])
 
             _send(text)
             # Throw in each embed and attachment as a separate IRC line
