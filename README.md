@@ -36,6 +36,9 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
 
         # Sets whether we should burst Discord guild owners as IRC owners
         show_owner_status: true
+        
+        # Sets whether to use webhooks to show remote user messages as if they were actual Discord users
+        webhooks: false
 
 ```
 
