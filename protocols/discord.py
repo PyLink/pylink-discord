@@ -487,10 +487,10 @@ class DiscordServer(ClientbotBaseProtocol):
     def message(self, source, target, text, notice=False):
         """Sends messages to the target."""
         if target in self.users:
-            try:
-                discord_target = self.users[target].dm_channel
-            except ValueError:
-                discord_target = self.users[target].dm_channel = self.users[target].discord_user.user.open_dm()
+            userobj = self.users[target]
+            # Get or create the DM channel for this user
+            self.users[target].dm_channel = getattr(userobj, 'dm_channel', userobj.discord_user.user.open_dm())
+            discord_target = self.users[target].dm_channel
 
         elif target in self.channels:
             discord_target = self.channels[target].discord_channel
