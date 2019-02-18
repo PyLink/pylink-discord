@@ -44,7 +44,7 @@ class DiscordChannelState(structures.CaseInsensitiveDict):
     def _keymangle(key):
         try:
             key = int(key)
-        except ValueError:
+        except (TypeError, ValueError):
             raise KeyError("Cannot convert channel ID %r to int" % key)
         return key
 
@@ -337,14 +337,19 @@ class DiscordBotPlugin(Plugin):
     @Plugin.listen('ChannelDelete')
     def on_channel_delete(self, event, *args, **kwargs):
         channel = event.channel
+        try:
+            pylink_netobj = self.protocol._children[event.channel.guild_id]
+        except KeyError:
+            log.debug("(%s) Could not delete channel %s as the parent network object does not exist", self.protocol.name, event.channel)
+            return
 
-        if channel.id not in self.channels:  # wasn't a type of channel we track
+        if channel.id not in pylink_netobj.channels:  # wasn't a type of channel we track
             return
 
         # Remove the channel from everyone's channel list
-        for u in self.channels[channel].users:
-            self.users[u].channels.discard(channel)
-        del self.channels[channel]
+        for u in pylink_netobj.channels[channel.id].users:
+            pylink_netobj.users[u].channels.discard(channel.id)
+        del pylink_netobj.channels[channel.id]
 
     @staticmethod
     def _format_embed(embed):
