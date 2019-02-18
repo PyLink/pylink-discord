@@ -378,7 +378,7 @@ class DiscordBotPlugin(Plugin):
                 if message.author.id in server.users:
                     target = self.botuser
                     subserver = discord_sid
-                    #server.users[message.author.id].dm_channel = message.channel
+                    server.users[message.author.id].dm_channel = message.channel
                     #server.channels[message.channel.id] = c  # Create a new channel
                     #c.discord_channel = message.channel
 
@@ -487,7 +487,11 @@ class DiscordServer(ClientbotBaseProtocol):
     def message(self, source, target, text, notice=False):
         """Sends messages to the target."""
         if target in self.users:
-            discord_target = self.users[target].discord_user.user.open_dm()
+            try:
+                discord_target = self.users[target].dm_channel
+            except ValueError:
+                discord_target = self.users[target].dm_channel = self.users[target].discord_user.user.open_dm()
+
         elif target in self.channels:
             discord_target = self.channels[target].discord_channel
         else:
