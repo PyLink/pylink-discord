@@ -41,6 +41,10 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         # Sets whether we should burst Discord guild owners as IRC owners
         show_owner_status: true
 
+        # Sets the format for usernames when using webhooks: supported fields include
+        # user fields ($nick, $ident, $host, etc.) as well as the network name $netname
+        webhook_user_format: "$nick @ IRC/$netname"
+
 ```
 
 5) Start PyLink using the `pylink-discord` wrapper in the repository root. This is **important** as this wrapper applies gevent patching, which is required by the underlying disco library.

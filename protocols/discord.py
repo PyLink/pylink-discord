@@ -18,6 +18,7 @@
 import calendar
 import operator
 import collections
+import string
 
 from disco.api.http import APIException
 from disco.bot import Bot, BotConfig
@@ -601,20 +602,26 @@ class DiscordServer(ClientbotBaseProtocol):
         # XXX: Should we cache the webhook object on the channel? If so, what happens if the webhook gets deleted?
         # XXX: Should the webhook avatar be customizable in the config or should we
         #      just require that users edit the webhook user in Discord
-        webhook_user = self.serverdata.get('nick') or conf.conf['pylink']['nick']
+        log.info('(%s) Creating new web-hook on channel %s/%s', self.name, self.get_friendly_name(channel_id))
+        webhook_user = 'PyLinkRelay'
         for webhook in self.virtual_parent.client.api.channels_webhooks_list(channel_id):
             if webhook.name == webhook_user:
                 return webhook
-        return self.virtual_parent.client.api.channels_webhooks_create(name=webhook_user)
+        return self.virtual_parent.client.api.channels_webhooks_create(channel_id, name=webhook_user)
 
     def _get_user_webhook_data(self, uid, network):
-        # TODO: Maybe make this more customizable
         # TODO: Allow relayed users to customize their avatar
-        user = world.networkobjects[network].users[uid]
-        separator = self.virtual_parent.serverdata.get('separator') or \
-                    conf.conf.get('relay', {}).get('separator') or '/'
+        netobj = world.networkobjects[network]
+        user = netobj.users[uid]
+
+        fields = user.get_fields()
+        fields['netname'] = netobj.get_full_network_name()
+        fields['nettag'] = network
+
+        user_format = self.serverdata.get('webhook_user_format', "$nick @ IRC/$netname")
+        tmpl = string.Template(user_format)
         return {
-            'username': "{}{}{}".format(user.nick, separator, network)
+            'username': tmpl.safe_substitute(fields)
         }
 
 class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
