@@ -265,7 +265,7 @@ class DiscordBotPlugin(Plugin):
 
     @Plugin.listen('GuildMembersChunk')
     def on_member_chunk(self, event: GuildMembersChunk, *args, **kwargs):
-        log.info('(%s) got GuildMembersChunk event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.members)
+        log.debug('(%s) got GuildMembersChunk event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.members)
         try:
             pylink_netobj = self.protocol._children[event.guild.id]
         except KeyError:
@@ -451,14 +451,24 @@ class DiscordBotPlugin(Plugin):
 class DiscordServer(ClientbotBaseProtocol):
     S2S_BUFSIZE = 0
 
-    def __init__(self, name, parent, server_id, guild_name):
-        conf.conf['servers'][name] = {'netname': 'Discord/%s' % guild_name}
-        super().__init__(name)
+    def __init__(self, _, parent, server_id, guild_name):
+        self.sid = server_id  # Allow serverdata to work first
         self.virtual_parent = parent
+
+        # Try to find a predefined server name; if that fails, use the server id.
+        # We don't use the guild name as the PyLink network name because they can be
+        # changed at any time, which will break plugins that store data per network.
+        fallback_name = 'd%d' % server_id
+        name = self.serverdata.get('name', fallback_name)
+        if name in world.networkobjects:
+            raise ValueError("Attempting to reintroduce network with name %r" % name)
+
+        super().__init__(name)
         self.sidgen = PUIDGenerator('DiscordInternalSID')
         self.uidgen = PUIDGenerator('PUID')
-        self.sid = server_id
-        self.servers[self.sid] = Server(self, None, server_id, internal=False, desc=name)
+
+        self.servers[self.sid] = Server(self, None, server_id, internal=False, desc=guild_name)
+        self.serverdata = {'netname': 'Discord/%s' % guild_name}
 
     def _init_vars(self):
         super()._init_vars()
@@ -472,6 +482,35 @@ class DiscordServer(ClientbotBaseProtocol):
 
         # Use an instance of DiscordChannelState, which converts string forms of channels to int
         self._channels = self.channels = DiscordChannelState()
+
+    @property
+    def serverdata(self):
+        """
+        Implements serverdata property for Discord subservers. This merges in the root serverdata config
+        block, plus any guild-specific settings for this guild.
+        """
+        if getattr(self, 'sid', None):
+            data = self.virtual_parent.serverdata.copy()
+            guild_data = data.get('guilds', {}).get(self.sid, {})
+            log.debug('serverdata: merging data %s with guild_data %s', data, guild_data)
+            data.update(guild_data)
+            return data
+        else:
+            log.debug('serverdata: sid not set, using parent data only')
+            return self.virtual_parent.serverdata
+
+    @serverdata.setter
+    def serverdata(self, value):
+        if getattr(self, 'sid', None):
+            data = self.virtual_parent.serverdata
+            # Create keys if not existing
+            if 'guilds' not in data:
+                data['guilds'] = {}
+            if self.sid not in data['guilds']:
+                data['guilds'][self.sid] = {}
+            data['guilds'][self.sid].update(value)
+        else:
+            raise RuntimeError('Cannot set serverdata because self.sid points nowhere')
 
     def is_nick(self, *args, **kwargs):
         return self.virtual_parent.is_nick(*args, **kwargs)
@@ -509,11 +548,13 @@ class DiscordServer(ClientbotBaseProtocol):
             self.virtual_parent.message_queue.put_nowait(message_data)
             return
 
-        if self.virtual_parent.serverdata.get('webhooks', False) and self.is_channel(target):
+        # Try webhook only if the target is linked to a guild and servers::<discord>::guilds::<guild_id>::use_webhooks is true
+        if discord_target.guild and self.serverdata.get('use_webhooks', False):
             try:
                 webhook = self._get_or_create_webhook(self.channels[target].discord_id)
             except APIException:
-                log.debug('(%s) _get_or_create_webhook: could not get or create webhook for channel %s. Falling back to standard Clientbot behavior', self.name, target, exc_info=True)
+                log.debug('(%s) _get_or_create_webhook: could not get or create webhook for channel %s. Falling back to standard Clientbot behavior',
+                          self.name, target, exc_info=True)
                 webhook = None
 
             if webhook:
@@ -681,16 +722,10 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         """
         Creates a virtual network object for a server with the given name.
         """
-        # Try to find a predefined server name; if that fails, use the server id.
-        # We don't use the guild name here because those can be changed at any time,
-        # confusing plugins that store data by PyLink network names.
-        fallback_name = 'd%d' % server_id
-        name = self.serverdata.get('server_names', {}).get(server_id, fallback_name)
-
-        if name in world.networkobjects:
-            raise ValueError("Attempting to reintroduce network with name %r" % name)
-        child = DiscordServer(name, self, server_id, guild_name)
-        world.networkobjects[name] = self._children[server_id] = child
+        # This is a bit different because we let the child server find its own name
+        # and report back to us.
+        child = DiscordServer(None, self, server_id, guild_name)
+        world.networkobjects[child.name] = self._children[server_id] = child
         return child
 
     def _remove_child(self, server_id):

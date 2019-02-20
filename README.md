@@ -28,17 +28,18 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         # https://support.discordapp.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-
         # You SHOULD set a name for every guild your bot is in, or the protocol module will fall back
         # to guild IDs (which are not pretty!)
-        server_names:
+        guilds:
             # overdrive networks (our magical server!)
-            497939890063802369: ovddsc
+            497939890063802369:
+                name: ovddsc
+                use_webhooks: false
             # another example
-            123456789000000000: chatutopia
+            123456789000000000:
+                name: chatutopia
+                use_webhooks: true
 
         # Sets whether we should burst Discord guild owners as IRC owners
         show_owner_status: true
-        
-        # Sets whether to use webhooks to show remote user messages as if they were actual Discord users
-        webhooks: false
 
 ```
 
