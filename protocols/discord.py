@@ -409,7 +409,11 @@ class DiscordBotPlugin(Plugin):
             text = message.replace_mentions(user_replace=format_user_mentions,
                                             role_replace=lambda r: '@' + str(r),
                                             channel_replace=str)
-            text = D2IFormatter().format(text)  # Translate IRC formatting to Discord
+            try:
+                text = D2IFormatter().format(text)
+            except:
+                log.exception('(%s) Error translating from Discord to IRC: %s', self.name, message_text)
+
             def _send(text):
                 for line in text.splitlines():  # Relay multiline messages as such
                     pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': line}])
@@ -696,7 +700,10 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             try:
                 message = self.message_queue.get(timeout=BATCH_DELAY)
                 message_text = message.pop('text', '')
-                message_text = I2DFormatter().format(message_text)
+                try:
+                    message_text = I2DFormatter().format(message_text)
+                except:
+                    log.exception('(%s) Error translating from IRC to Discord: %s', self.name, message_text)
                 channel = message.pop('target')
                 current_sender = current_channel_senders.get(channel, None)
 
