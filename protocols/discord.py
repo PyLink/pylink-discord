@@ -19,6 +19,7 @@ import calendar
 import operator
 import collections
 import string
+import urllib.parse
 
 from disco.api.http import APIException
 from disco.bot import Bot, BotConfig
@@ -36,6 +37,12 @@ from pylinkirc import structures
 from pylinkirc.classes import *
 from pylinkirc.log import log
 from pylinkirc.protocols.clientbot import ClientbotBaseProtocol
+
+try:
+    import libgravatar
+except ImportError:
+    libgravatar = None
+    log.info('discord: libgravatar not installed - avatar support will be disabled.')
 
 from ._discord_formatter import I2DFormatter, D2IFormatter
 
@@ -604,9 +611,7 @@ class DiscordServer(ClientbotBaseProtocol):
 
     def _get_or_create_webhook(self, channel_id):
         # XXX: Should we cache the webhook object on the channel? If so, what happens if the webhook gets deleted?
-        # XXX: Should the webhook avatar be customizable in the config or should we
-        #      just require that users edit the webhook user in Discord
-        webhook_user = 'PyLinkRelay'
+        webhook_user = self.serverdata.get('webhook_name') or 'PyLinkRelay'
         for webhook in self.virtual_parent.client.api.channels_webhooks_list(channel_id):
             if webhook.name == webhook_user:
                 return webhook
@@ -615,7 +620,6 @@ class DiscordServer(ClientbotBaseProtocol):
             return self.virtual_parent.client.api.channels_webhooks_create(channel_id, name=webhook_user)
 
     def _get_user_webhook_data(self, uid, network):
-        # TODO: Allow relayed users to customize their avatar
         netobj = world.networkobjects[network]
         user = netobj.users[uid]
 
@@ -625,9 +629,33 @@ class DiscordServer(ClientbotBaseProtocol):
 
         user_format = self.serverdata.get('webhook_user_format', "$nick @ IRC/$netname")
         tmpl = string.Template(user_format)
-        return {
+        data = {
             'username': tmpl.safe_substitute(fields)
         }
+
+        # XXX: we'll have a more rigorous matching system later on
+        if user.services_account in self.serverdata.get('avatars', {}):
+            avatar_url = self.serverdata['avatars'][user.services_account]
+            p = urllib.parse.urlparse(avatar_url)
+            log.debug('(%s) Got raw avatar URL %s for UID %s', self.name, avatar_url, uid)
+
+            if p.scheme == 'gravatar' and libgravatar:  # gravatar:hello@example.com
+                try:
+                    g = libgravatar.Gravatar(p.path)
+                    log.debug('(%s) Using Gravatar email %s for UID %s', self.name, p.path, uid)
+                    data['avatar_url'] = g.get_image(use_ssl=True)
+                except:
+                    log.exception('Failed to obtain Gravatar image for user %s/%s', uid, p.path)
+
+            elif p.scheme in ('http', 'https'):  # a direct image link
+                data['avatar_url'] = avatar_url
+
+            else:
+                log.warning('(%s) Unknown avatar URI %s for UID %s', self.name, avatar_url, uid)
+        else:
+            log.debug('(%s) Avatar not defined for UID %s', self.name, uid)
+
+        return data
 
 class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
     S2S_BUFSIZE = 0
@@ -725,11 +753,13 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         message_text = message_info.pop('text', '').strip()
         if message_text:
             if message_info.get('username'):
+                log.debug('(%s) Sending webhook to channel %s with user %s and avatar %s', self.name, channel,
+                          message_info.get('username'), message_info.get('avatar_url'))
                 message_info['webhook'].execute(
                     content=message_text,
                     username=message_info['username'],
-                    avatar_url=message_info.get('avatar'),
-                    )
+                    avatar_url=message_info.get('avatar_url'),
+                )
             else:
                 channel.send_message(message_text)
 
