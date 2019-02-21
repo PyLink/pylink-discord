@@ -561,14 +561,14 @@ class DiscordServer(ClientbotBaseProtocol):
             if webhook:
                 try:
                     remotenet, remoteuser = self.users[source].remote
-                    message_data['webhook'] = webhook
                     message_data.update(self._get_user_webhook_data(remoteuser, remotenet))
+                except (KeyError, ValueError):
+                    log.debug('(%s) failure getting user info for user %s. Falling back to standard Clientbot behavior',
+                              self.name, source, exc_info=True)
+                else:
+                    message_data['webhook'] = webhook
                     self.virtual_parent.message_queue.put_nowait(message_data)
                     return
-                except (KeyError, ValueError):
-                    log.debug(
-                        '(%s) failure getting user info for user %s. Falling back to standard Clientbot behavior',
-                        self.name, source, exc_info=True)
 
         self.call_hooks([source, 'CLIENTBOT_MESSAGE', {'target': target, 'is_notice': notice, 'text': text}])
 
@@ -602,12 +602,13 @@ class DiscordServer(ClientbotBaseProtocol):
         # XXX: Should we cache the webhook object on the channel? If so, what happens if the webhook gets deleted?
         # XXX: Should the webhook avatar be customizable in the config or should we
         #      just require that users edit the webhook user in Discord
-        log.info('(%s) Creating new web-hook on channel %s/%s', self.name, self.get_friendly_name(channel_id))
         webhook_user = 'PyLinkRelay'
         for webhook in self.virtual_parent.client.api.channels_webhooks_list(channel_id):
             if webhook.name == webhook_user:
                 return webhook
-        return self.virtual_parent.client.api.channels_webhooks_create(channel_id, name=webhook_user)
+        else:
+            log.info('(%s) Creating new web-hook on channel %s/%s', self.name, channel_id, self.get_friendly_name(channel_id))
+            return self.virtual_parent.client.api.channels_webhooks_create(channel_id, name=webhook_user)
 
     def _get_user_webhook_data(self, uid, network):
         # TODO: Allow relayed users to customize their avatar
