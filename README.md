@@ -24,7 +24,7 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         netname: "Discord"
         protocol: discord
         # This config block uses guild IDs, so that settings and (PyLink) network names are consistent
-        # for plugins like Relay. You can more easily find IDs by turning on Developer Mode in Discord:
+        # across guild renames. You can more easily find IDs by turning on Developer Mode in Discord:
         # https://support.discordapp.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-
         # You SHOULD set a name for every guild your bot is in, or the protocol module will fall back
         # to guild IDs as PyLink network names (which are not pretty!)
@@ -41,8 +41,8 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         # Sets whether we should burst Discord guild owners as IRC owners
         show_owner_status: true
 
-        # Sets the format for usernames when using webhooks: supported fields include
-        # user fields ($nick, $ident, $host, etc.) as well as the network name $netname
+        # Sets the format for usernames when using webhooks: supported fields include user fields
+        # ($nick, $ident, $host, etc.) as well as the network name ($netname) and short network tag ($nettag)
         webhook_user_format: "$nick @ IRC/$netname"
 
         # You can associate IRC services accounts with preferred avatar URLs. Currently this is
