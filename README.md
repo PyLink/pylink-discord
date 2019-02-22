@@ -23,11 +23,11 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         token: "your.discord.token.keep.this.private!"
         netname: "Discord"
         protocol: discord
-        # This maps guild IDs to PyLink network names, so that they have a consistent name for plugins
-        # like Relay. You can more easily view IDs by turning on Developer Mode in Discord:
+        # This config block uses guild IDs, so that settings and (PyLink) network names are consistent
+        # for plugins like Relay. You can more easily find IDs by turning on Developer Mode in Discord:
         # https://support.discordapp.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-
         # You SHOULD set a name for every guild your bot is in, or the protocol module will fall back
-        # to guild IDs (which are not pretty!)
+        # to guild IDs as PyLink network names (which are not pretty!)
         guilds:
             # overdrive networks (our magical server!)
             497939890063802369:
@@ -44,6 +44,21 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         # Sets the format for usernames when using webhooks: supported fields include
         # user fields ($nick, $ident, $host, etc.) as well as the network name $netname
         webhook_user_format: "$nick @ IRC/$netname"
+
+        # You can associate IRC services accounts with preferred avatar URLs. Currently this is
+        # quite limited and requires hardcoding things in the config; eventually there will be
+        # a self-service process to do this.
+        #
+        # Gravatar emails are supported in the form "gravatar:some@email.com"
+        # http:// and https:// URLs also work.
+        avatars:
+            user1: "gravatar:user1@example.com"
+            abcd: "https://abcd.example.com/avatar.png"
+
+        # For users without an avatar set, you can use a default avatar URL (http or https).
+        # If this is unset, the bot will just use the default webhook icon (which you can customize
+        # per channel if desired).
+        default_avatar_url: "https://ircnet.overdrivenetworks.com/img/relaypic.png"
 
 ```
 
