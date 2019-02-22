@@ -578,7 +578,6 @@ class DiscordServer(ClientbotBaseProtocol):
             log.error('(%s) Could not find message target for %s', self.name, target)
             return
 
-        message_data = {'target': discord_target, 'sender': source, 'text': text}
         if self.pseudoclient and self.pseudoclient.uid == source:
             self.virtual_parent.message_queue.put_nowait(message_data)
             return
@@ -591,15 +590,25 @@ class DiscordServer(ClientbotBaseProtocol):
                 log.debug('(%s) _get_or_create_webhook: could not get or create webhook for channel %s. Falling back to standard Clientbot behavior',
                           self.name, target, exc_info=True)
                 webhook = None
-
             if webhook:
+                message_data = {'target': discord_target, 'sender': source, 'text': text}
+
                 try:
                     remotenet, remoteuser = self.users[source].remote
-                    message_data.update(self._get_user_webhook_data(remoteuser, remotenet))
+                    remoteirc = world.networkobjects[remotenet]
+                    message_data.update(self._get_user_webhook_data(remoteirc, remoteuser))
                 except (KeyError, ValueError):
-                    log.debug('(%s) failure getting user info for user %s. Falling back to standard Clientbot behavior',
+                    log.debug('(%s) Failure getting user info for user %s. Falling back to standard Clientbot behavior',
                               self.name, source, exc_info=True)
                 else:
+                    if text.startswith('\x01ACTION'):  # Mangle IRC CTCP actions
+                        try:
+                            message_data['text'] = '* %s%s' % (remoteirc.get_friendly_name(remoteuser), text[len('\x01ACTION'):-1])
+                        except (KeyError, ValueError):
+                            log.exception('(%s) Failed to normalize IRC CTCP action: source=%s, text=%s', self.name, source, text)
+                    elif text.startswith('\x01'):
+                        return  # Drop other CTCPs
+
                     message_data['webhook'] = webhook
                     self.virtual_parent.message_queue.put_nowait(message_data)
                     return
@@ -643,13 +652,12 @@ class DiscordServer(ClientbotBaseProtocol):
             log.info('(%s) Creating new web-hook on channel %s/%s', self.name, channel_id, self.get_friendly_name(channel_id))
             return self.virtual_parent.client.api.channels_webhooks_create(channel_id, name=webhook_user)
 
-    def _get_user_webhook_data(self, uid, network):
-        netobj = world.networkobjects[network]
+    def _get_user_webhook_data(self, netobj, uid):
         user = netobj.users[uid]
 
         fields = user.get_fields()
         fields['netname'] = netobj.get_full_network_name()
-        fields['nettag'] = network
+        fields['nettag'] = netobj.name
 
         user_format = self.serverdata.get('webhook_user_format', "$nick @ IRC/$netname")
         tmpl = string.Template(user_format)
@@ -757,6 +765,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             try:
                 message = self.message_queue.get(timeout=BATCH_DELAY)
                 message_text = message.pop('text', '')
+
                 try:
                     message_text = I2DFormatter().format(message_text)
                 except:
