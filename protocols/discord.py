@@ -634,6 +634,8 @@ class DiscordServer(ClientbotBaseProtocol):
             'username': tmpl.safe_substitute(fields)
         }
 
+        default_avatar_url = self.serverdata.get('default_avatar_url')
+
         # XXX: we'll have a more rigorous matching system later on
         if user.services_account in self.serverdata.get('avatars', {}):
             avatar_url = self.serverdata['avatars'][user.services_account]
@@ -653,8 +655,11 @@ class DiscordServer(ClientbotBaseProtocol):
 
             else:
                 log.warning('(%s) Unknown avatar URI %s for UID %s', self.name, avatar_url, uid)
+        elif default_avatar_url:
+            log.debug('(%s) Avatar not defined for UID %s; using default avatar %s', self.name, uid, default_avatar_url)
+            data['avatar_url'] = default_avatar_url
         else:
-            log.debug('(%s) Avatar not defined for UID %s', self.name, uid)
+            log.debug('(%s) Avatar not defined for UID %s; using default webhook avatar', self.name, uid)
 
         return data
 
