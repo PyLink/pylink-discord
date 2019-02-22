@@ -13,9 +13,9 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
 
 1) Install the requirements listed above. You MUST use the versions listed above, or things will not work!
 2) Clone this repository somewhere: `git clone https://github.com/pylink/pylink-discord`
-2) Set up a Discord application + bot user. https://github.com/reactiflux/discord-irc/wiki/Creating-a-discord-bot-&-getting-a-token is a solid guide on how to do so.
-3) Add the protocols folder in this repository to the [`protocol_dirs`](https://github.com/jlu5/PyLink/blob/ba17821/example-conf.yml#L57-L60) option in your PyLink config.
-4) Configure a server block using the `discord` protocol module:
+3) Set up a Discord application + bot user. https://github.com/reactiflux/discord-irc/wiki/Creating-a-discord-bot-&-getting-a-token is a solid guide on how to do so.
+4) Add the protocols folder in this repository to the [`protocol_dirs`](https://github.com/jlu5/PyLink/blob/ba17821/example-conf.yml#L57-L60) option in your PyLink config.
+5) Configure a server block using the `discord` protocol module:
 
 ```yaml
 
@@ -26,6 +26,7 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         # This config block uses guild IDs, so that settings and (PyLink) network names are consistent
         # across guild renames. You can more easily find IDs by turning on Developer Mode in Discord:
         # https://support.discordapp.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-
+        #
         # You SHOULD set a name for every guild your bot is in, or the protocol module will fall back
         # to guild IDs as PyLink network names (which are not pretty!)
         guilds:
@@ -62,7 +63,7 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
 
 ```
 
-5) Start PyLink using the `pylink-discord` wrapper in the repository root. This is **important** as this wrapper applies gevent patching, which is required by the underlying disco library.
+6) Start PyLink using the `pylink-discord` wrapper in the repository root. This is **important** as this wrapper applies gevent patching, which is required by the underlying disco library.
 
 ## Usage
 
