@@ -93,6 +93,7 @@ class DiscordBotPlugin(Plugin):
         log.info('(%s) bursting guild %s/%s', self.protocol.name, guild.id, guild.name)
         pylink_netobj = self.protocol._create_child(guild.id, guild.name)
         pylink_netobj.uplink = None
+        pylink_netobj._guild_name = guild.name
 
         for member in guild.members.values():
             self._burst_new_client(guild, member, pylink_netobj)
@@ -252,6 +253,8 @@ class DiscordBotPlugin(Plugin):
                     'ip': pylink_user.ip
                 }
             ])
+            # Expose the Discord UID to end users
+            pylink_netobj.call_hooks([uid, 'CLIENT_SERVICES_LOGIN', {'text': str(uid)}])
 
         # Calculate which channels the user belongs to
         for channel in guild.channels.values():
@@ -265,6 +268,17 @@ class DiscordBotPlugin(Plugin):
     def on_server_connect(self, event: GuildCreate, *args, **kwargs):
         log.info('(%s) got GuildCreate event for guild %s/%s', self.protocol.name, event.guild.id, event.guild.name)
         self._burst_guild(event.guild)
+
+    @Plugin.listen('GuildUpdate')
+    def on_server_update(self, event: GuildUpdate, *args, **kwargs):
+        log.info('(%s) got GuildUpdate event for guild %s/%s', self.protocol.name, event.guild.id, event.guild.name)
+        try:
+            pylink_netobj = self.protocol._children[event.guild.id]
+        except KeyError:
+            log.error("(%s) Could not update guild %s/%s as the corresponding network object does not exist", self.protocol.name, event.guild.id, event.guild.name)
+            return
+        else:
+            pylink_netobj._guild_name = event.guild.name
 
     @Plugin.listen('GuildDelete')
     def on_server_delete(self, event: GuildDelete, *args, **kwargs):
@@ -480,7 +494,6 @@ class DiscordServer(ClientbotBaseProtocol):
         self.uidgen = PUIDGenerator('PUID')
 
         self.servers[self.sid] = Server(self, None, server_id, internal=False, desc=guild_name)
-        self.serverdata = {'netname': 'Discord/%s' % guild_name}
 
     def _init_vars(self):
         super()._init_vars()
@@ -540,6 +553,12 @@ class DiscordServer(ClientbotBaseProtocol):
         Returns the friendly name of a SID (the guild name), UID (the nick), or channel (the name).
         """
         return self.virtual_parent.get_friendly_name(*args, caller=self, **kwargs)
+
+    def get_full_network_name(self):
+        """
+        Returns the guild name.
+        """
+        return 'Discord/' + self._guild_name
 
     def message(self, source, target, text, notice=False):
         """Sends messages to the target."""
