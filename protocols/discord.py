@@ -612,6 +612,7 @@ class DiscordServer(ClientbotBaseProtocol):
     def _get_or_create_webhook(self, channel_id):
         # XXX: Should we cache the webhook object on the channel? If so, what happens if the webhook gets deleted?
         webhook_user = self.serverdata.get('webhook_name') or 'PyLinkRelay'
+        webhook_user += '-%d' % channel_id
         for webhook in self.virtual_parent.client.api.channels_webhooks_list(channel_id):
             if webhook.name == webhook_user:
                 return webhook
