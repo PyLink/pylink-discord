@@ -21,6 +21,10 @@ import collections
 import string
 import urllib.parse
 
+import socket, gevent.socket
+if socket.socket is not gevent.socket.socket:
+    raise ImportError("gevent patching must be enabled for protocols/discord to work!")
+
 from disco.api.http import APIException
 from disco.bot import Bot, BotConfig
 from disco.bot import Plugin
