@@ -578,6 +578,7 @@ class DiscordServer(ClientbotBaseProtocol):
             log.error('(%s) Could not find message target for %s', self.name, target)
             return
 
+        message_data = {'target': discord_target, 'sender': source, 'text': text}
         if self.pseudoclient and self.pseudoclient.uid == source:
             self.virtual_parent.message_queue.put_nowait(message_data)
             return
@@ -591,7 +592,6 @@ class DiscordServer(ClientbotBaseProtocol):
                           self.name, target, exc_info=True)
                 webhook = None
             if webhook:
-                message_data = {'target': discord_target, 'sender': source, 'text': text}
 
                 try:
                     remotenet, remoteuser = self.users[source].remote
