@@ -437,7 +437,7 @@ class DiscordBotPlugin(Plugin):
             try:
                 text = D2IFormatter().format(text)
             except:
-                log.exception('(%s) Error translating from Discord to IRC: %s', self.name, message_text)
+                log.exception('(%s) Error translating from Discord to IRC: %s', self.name, text)
 
             def _send(text):
                 for line in text.splitlines():  # Relay multiline messages as such
