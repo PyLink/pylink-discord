@@ -63,18 +63,25 @@ class D2IFormatter():
 
     rules = ['double_emphasis', 'emphasis', 'underline']
 
+    @staticmethod
+    def surround(text, surround):
+        return surround + text + surround
+
     def replace_double_emphasis(self, matchobj):
-        return self.syntax['double_emphasis']['irc'] + matchobj.group(2) + self.syntax['double_emphasis']['irc']
+        control_char = self.syntax['double_emphasis']['irc']
+        return self.surround(matchobj.group(2).replace("\n", self.surround("\n", control_char)), control_char)
 
     def replace_emphasis(self, matchobj):
+        control_char = self.syntax['emphasis']['irc']
         if matchobj.group(2):
             res = matchobj.group(2)
         else:
             res = matchobj.group(5)
-        return self.syntax['emphasis']['irc'] + res + self.syntax['emphasis']['irc']
+        return self.surround(res.replace("\n", self.surround("\n", control_char)), control_char)
 
     def replace_underline(self, matchobj):
-        return self.syntax['underline']['irc'] + matchobj.group(2) + self.syntax['underline']['irc']
+        control_char = self.syntax['underline']['irc']
+        return self.surround(matchobj.group(2).replace("\n", self.surround("\n", control_char)), control_char)
 
     def sanitize(self, message):
         message = re.sub(r'\\([^A-Za-z0-9])', r'\1', message)
