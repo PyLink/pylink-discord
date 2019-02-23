@@ -440,7 +440,7 @@ class DiscordBotPlugin(Plugin):
                 log.exception('(%s) Error translating from Discord to IRC: %s', self.name, text)
 
             def _send(text):
-                for line in text.splitlines():  # Relay multiline messages as such
+                for line in text.split('\n'):  # Relay multiline messages as such
                     pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': line}])
 
             _send(text)
