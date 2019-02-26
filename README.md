@@ -34,6 +34,13 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
             497939890063802369:
                 name: ovddsc
                 use_webhooks: false
+                # Sets the name of the dummy client used to forward webhooks from non-PyLink sources,
+                # since they don't correspond to Discord users. Valid values include false (disable webhook
+                # forwarding entirely), a nick, or a full hostmask (nick!user@host).
+                # This defaults to false if not set.
+                #webhooks_agent: false
+                webhooks_agent: Webhooks
+                #webhooks_agent: Webhooks!webhooks@discord/webhooks-agent
             # another example
             123456789000000000:
                 name: chatutopia
