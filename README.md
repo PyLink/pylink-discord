@@ -34,6 +34,10 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
             497939890063802369:
                 name: ovddsc
                 use_webhooks: false
+                # Set this value to configure relay for messages sent via non-pylink webhooks 
+                webhooks_agent: false # disables webhook relaying
+                webhooks_agent: Webhooks # specifies nick
+                webhooks_agent: Webhooks!webhooks@discord/webhooks-agent # specifies nick, host and ident
             # another example
             123456789000000000:
                 name: chatutopia
