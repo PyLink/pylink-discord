@@ -16,15 +16,13 @@
 # You should have received a copy of the GNU General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 import calendar
-from datetime import datetime
+import datetime
 import operator
 import collections
 import string
 import urllib.parse
 
 import socket, gevent.socket
-
-from pylinkirc.utils import split_hostmask
 
 if socket.socket is not gevent.socket.socket:
     raise ImportError("gevent patching must be enabled for protocols/discord to work!")
@@ -33,7 +31,7 @@ from disco.api.http import APIException
 from disco.bot import Bot, BotConfig
 from disco.bot import Plugin
 from disco.client import Client, ClientConfig
-from disco.gateway.events import *
+from disco.gateway import events
 from disco.types import Guild, Channel as DiscordChannel, GuildMember, Message
 from disco.types.channel import ChannelType
 from disco.types.permissions import Permissions
@@ -41,7 +39,7 @@ from disco.types.user import Status as DiscordStatus
 #from disco.util.logging import setup_logging
 from holster.emitter import Priority
 
-from pylinkirc import structures
+from pylinkirc import structures, utils
 from pylinkirc.classes import *
 from pylinkirc.log import log
 from pylinkirc.protocols.clientbot import ClientbotBaseProtocol
@@ -104,10 +102,10 @@ class DiscordBotPlugin(Plugin):
         pylink_netobj._guild_name = guild.name
 
         # First, burst the webhook agent, if enabled
-        self.webhook_agent_uid = None
+        pylink_netobj.webhook_agent_uid = None
         webhook_agent = pylink_netobj.serverdata.get('webhooks_agent', False)
         if webhook_agent:
-            self.webhook_agent_uid = self._burst_webhook_agent(webhook_agent, guild, pylink_netobj)
+            pylink_netobj.webhook_agent_uid = self._burst_webhook_agent(webhook_agent, guild, pylink_netobj)
 
         for member in guild.members.values():
             self._burst_new_client(guild, member, pylink_netobj)
@@ -151,9 +149,10 @@ class DiscordBotPlugin(Plugin):
         pylink_channel.discord_channel = channel
 
         # If we have a webhook agent, add it to the channel
-        if self.webhook_agent_uid and self.webhook_agent_uid not in pylink_channel.users:
-            pylink_netobj.users[self.webhook_agent_uid].channels.add(channel.id)
-            pylink_channel.users.add(self.webhook_agent_uid)
+        if pylink_netobj.webhook_agent_uid and pylink_netobj.webhook_agent_uid not in pylink_channel.users:
+            pylink_netobj.users[pylink_netobj.webhook_agent_uid].channels.add(channel.id)
+            pylink_channel.users.add(pylink_netobj.webhook_agent_uid)
+            users_joined.append(pylink_netobj.webhook_agent_uid)
 
         if member is None:
             members = guild.members.values()
@@ -272,8 +271,6 @@ class DiscordBotPlugin(Plugin):
                     'ip': pylink_user.ip
                 }
             ])
-            # Expose the Discord UID to end users
-            pylink_netobj.call_hooks([uid, 'CLIENT_SERVICES_LOGIN', {'text': str(uid)}])
 
         # Calculate which channels the user belongs to
         for channel in guild.channels.values():
@@ -283,16 +280,18 @@ class DiscordBotPlugin(Plugin):
         self._update_user_status(guild.id, uid, member.user.presence)
         return pylink_user
 
-    def _burst_webhook_agent(self, webhook_agent, guild, pylink_netobj):
+    @staticmethod
+    def _burst_webhook_agent(webhook_agent, guild, pylink_netobj):
         try:
-            webhook_agent = split_hostmask(webhook_agent)
+            webhook_agent = utils.split_hostmask(webhook_agent)
         except ValueError:
             webhook_agent = [webhook_agent, 'webhooks', 'discord/webhooks-agent']
         agent_uid = pylink_netobj.uidgen.next_uid()
+        realname = 'pylink-discord webhooks agent'
         pylink_netobj.users[agent_uid] = pylink_user = User(pylink_netobj, nick=webhook_agent[0],
-                                                            ident=webhook_agent[1], realname=webhook_agent[0],
+                                                            ident=webhook_agent[1], realname=realname,
                                                             host=webhook_agent[2],
-                                                            ts=calendar.timegm(datetime.utcnow().timetuple()),
+                                                            ts=calendar.timegm(datetime.datetime.utcnow().timetuple()),
                                                             uid=agent_uid,
                                                             server=guild.id)
         pylink_user.modes.update({('i', None), ('B', None)})
@@ -309,18 +308,16 @@ class DiscordBotPlugin(Plugin):
                 'ip': pylink_user.ip
             }
         ])
-        # Expose the Discord UID to end users
-        pylink_netobj.call_hooks([agent_uid, 'CLIENT_SERVICES_LOGIN', {'text': str(agent_uid)}])
 
         return agent_uid
 
     @Plugin.listen('GuildCreate')
-    def on_server_connect(self, event: GuildCreate, *args, **kwargs):
+    def on_server_connect(self, event: events.GuildCreate, *args, **kwargs):
         log.info('(%s) got GuildCreate event for guild %s/%s', self.protocol.name, event.guild.id, event.guild.name)
         self._burst_guild(event.guild)
 
     @Plugin.listen('GuildUpdate')
-    def on_server_update(self, event: GuildUpdate, *args, **kwargs):
+    def on_server_update(self, event: events.GuildUpdate, *args, **kwargs):
         log.info('(%s) got GuildUpdate event for guild %s/%s', self.protocol.name, event.guild.id, event.guild.name)
         try:
             pylink_netobj = self.protocol._children[event.guild.id]
@@ -331,12 +328,12 @@ class DiscordBotPlugin(Plugin):
             pylink_netobj._guild_name = event.guild.name
 
     @Plugin.listen('GuildDelete')
-    def on_server_delete(self, event: GuildDelete, *args, **kwargs):
+    def on_server_delete(self, event: events.GuildDelete, *args, **kwargs):
         log.info('(%s) Got kicked from guild %s, triggering a disconnect', self.protocol.name, event.id)
         self.protocol._remove_child(event.id)
 
     @Plugin.listen('GuildMembersChunk')
-    def on_member_chunk(self, event: GuildMembersChunk, *args, **kwargs):
+    def on_member_chunk(self, event: events.GuildMembersChunk, *args, **kwargs):
         log.debug('(%s) got GuildMembersChunk event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.members)
         try:
             pylink_netobj = self.protocol._children[event.guild.id]
@@ -348,7 +345,7 @@ class DiscordBotPlugin(Plugin):
             self._burst_new_client(event.guild, member, pylink_netobj)
 
     @Plugin.listen('GuildMemberAdd')
-    def on_member_add(self, event: GuildMemberAdd, *args, **kwargs):
+    def on_member_add(self, event: events.GuildMemberAdd, *args, **kwargs):
         log.info('(%s) got GuildMemberAdd event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.member)
         try:
             pylink_netobj = self.protocol._children[event.guild.id]
@@ -358,7 +355,7 @@ class DiscordBotPlugin(Plugin):
         self._burst_new_client(event.guild, event.member, pylink_netobj)
 
     @Plugin.listen('GuildMemberUpdate')
-    def on_member_update(self, event: GuildMemberUpdate, *args, **kwargs):
+    def on_member_update(self, event: events.GuildMemberUpdate, *args, **kwargs):
         log.info('(%s) got GuildMemberUpdate event for guild %s/%s: %s', self.protocol.name, event.guild.id, event.guild.name, event.member)
         try:
             pylink_netobj = self.protocol._children[event.guild.id]
@@ -384,7 +381,7 @@ class DiscordBotPlugin(Plugin):
                 self._update_channel_presence(event.guild, channel, event.member, relay_modes=True)
 
     @Plugin.listen('GuildMemberRemove')
-    def on_member_remove(self, event: GuildMemberRemove, *args, **kwargs):
+    def on_member_remove(self, event: events.GuildMemberRemove, *args, **kwargs):
         log.info('(%s) got GuildMemberRemove event for guild %s: %s', self.protocol.name, event.guild_id, event.user)
         try:
             pylink_netobj = self.protocol._children[event.guild_id]
@@ -440,13 +437,13 @@ class DiscordBotPlugin(Plugin):
         return 'Attachment: %s \x02<%s>\x02' % (attachment.filename, attachment.url)
 
     @Plugin.listen('MessageCreate')
-    def on_message(self, event: MessageCreate, *args, **kwargs):
+    def on_message(self, event: events.MessageCreate, *args, **kwargs):
         message = event.message
         subserver = None
         target = None
 
         # If the bot is the one sending the message, don't do anything
-        if message.author.id == self.botuser or (message.webhook_id and not self.webhook_agent_uid):
+        if message.author.id == self.botuser:
             return
 
         if not message.guild:
@@ -490,12 +487,14 @@ class DiscordBotPlugin(Plugin):
         pylink_netobj = self.protocol._children[subserver]
         author = message.author.id
         if message.webhook_id:
-            if message.webhook_id == getattr(getattr(pylink_netobj.channels[target], 'webhook', None), 'id', None):
+            if not pylink_netobj.webhook_agent_uid or \
+                    (hasattr(pylink_netobj.channels[target], 'webhook') and
+                     message.webhook_id == pylink_netobj.channels[target].webhook.id):
                 return
 
-            author = self.webhook_agent_uid
+            author = pylink_netobj.webhook_agent_uid
             # Format the message to contain the webhook username
-            text = f'<{message.author.username}> {text}'
+            text = '<{}> {}'.format(message.author.username, text)
 
         def _send(text):
             for line in text.split('\n'):  # Relay multiline messages as such
@@ -700,16 +699,16 @@ class DiscordServer(ClientbotBaseProtocol):
         return [text]
 
     def _get_or_create_webhook(self, channel_id):
-        self.channels[channel_id].webhook = getattr(self.channels[channel_id], 'webhook', None)
-        if self.channels[channel_id].webhook:
-            return self.channels[channel_id].webhook
+        webhook = getattr(self.channels[channel_id], 'webhook', None)
+        if webhook:
+            return webhook
 
         webhook_user = self.serverdata.get('webhook_name') or 'PyLinkRelay'
         webhook_user += '-%d' % channel_id
         for webhook in self.virtual_parent.client.api.channels_webhooks_list(channel_id):
             if webhook.name == webhook_user:
                 self.channels[channel_id].webhook = webhook
-                return self.channels[channel_id].webhook
+                return webhook
         else:
             log.info('(%s) Creating new web-hook on channel %s/%s', self.name, channel_id, self.get_friendly_name(channel_id))
             return self.virtual_parent.client.api.channels_webhooks_create(channel_id, name=webhook_user)
