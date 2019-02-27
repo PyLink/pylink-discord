@@ -378,15 +378,6 @@ class DiscordBotPlugin(Plugin):
             pylink_netobj.users[u].channels.discard(channel.id)
         del pylink_netobj.channels[channel.id]
 
-    @staticmethod
-    def _format_embed(embed):
-        if embed.title and embed.description:
-            return '%s - %s \x02<%s>\x02' % (embed.title, embed.description, embed.url)
-        elif embed.title:
-            return '%s \x02<%s>\x02' % (embed.title, embed.url)
-        else:
-            return embed.url
-
     @Plugin.listen('MessageCreate')
     def on_message(self, event: MessageCreate, *args, **kwargs):
         message = event.message
@@ -438,9 +429,6 @@ class DiscordBotPlugin(Plugin):
                     pylink_netobj.call_hooks([message.author.id, 'PRIVMSG', {'target': target, 'text': line}])
 
             _send(text)
-            # Throw in each embed and attachment as a separate IRC line
-            for embed in message.embeds:
-                _send(self._format_embed(embed))
             # For attachments, just send the link
             for attachment in message.attachments.values():
                 _send(attachment.url)
