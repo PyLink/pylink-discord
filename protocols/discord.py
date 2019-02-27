@@ -387,12 +387,6 @@ class DiscordBotPlugin(Plugin):
         else:
             return embed.url
 
-    @staticmethod
-    def _format_attachment(attachment):
-        # TODO: humanize attachment sizes
-        #return 'Attachment: %s (%s) \x02<%s>\x02' % (attachment.filename, attachment.size, attachment.proxy_url)
-        return 'Attachment: %s \x02<%s>\x02' % (attachment.filename, attachment.url)
-
     @Plugin.listen('MessageCreate')
     def on_message(self, event: MessageCreate, *args, **kwargs):
         message = event.message
@@ -447,8 +441,9 @@ class DiscordBotPlugin(Plugin):
             # Throw in each embed and attachment as a separate IRC line
             for embed in message.embeds:
                 _send(self._format_embed(embed))
+            # For attachments, just send the link
             for attachment in message.attachments.values():
-                _send(self._format_attachment(attachment))
+                _send(attachment.url)
 
     def _update_user_status(self, guild_id, uid, presence):
         """Handles a Discord presence update."""
