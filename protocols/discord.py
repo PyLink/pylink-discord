@@ -16,8 +16,7 @@
 # You should have received a copy of the GNU General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 import calendar
-import datetime
-import operator
+import time
 import collections
 import string
 import urllib.parse
@@ -588,7 +587,7 @@ class DiscordServer(ClientbotBaseProtocol):
         self.users[agent_uid] = pylink_user = User(self, nick=webhooks_agent[0],
                                                    ident=webhooks_agent[1], realname=self.WEBHOOKS_AGENT_REALNAME,
                                                    host=webhooks_agent[2],
-                                                   ts=calendar.timegm(datetime.datetime.utcnow().timetuple()),
+                                                   ts=int(time.time()),
                                                    uid=agent_uid,
                                                    server=self.sid)
         pylink_user.modes.update({('i', None), ('B', None)})
