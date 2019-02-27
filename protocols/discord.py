@@ -295,19 +295,6 @@ class DiscordBotPlugin(Plugin):
                                                             uid=agent_uid,
                                                             server=guild.id)
         pylink_user.modes.update({('i', None), ('B', None)})
-        pylink_netobj.call_hooks([
-            guild.id,
-            'UID',
-            {
-                'uid': agent_uid,
-                'ts': pylink_user.ts,
-                'nick': pylink_user.nick,
-                'realhost': pylink_user.realhost,
-                'host': pylink_user.host,
-                'ident': pylink_user.ident,
-                'ip': pylink_user.ip
-            }
-        ])
 
         return agent_uid
 
