@@ -577,7 +577,7 @@ class DiscordServer(ClientbotBaseProtocol):
             log.debug('(%s) Not bursting webhooks agent; it is not enabled', self.name)
             return
 
-        try:  # Try to treat is as a hostmask
+        try:  # Try to treat it as a hostmask
             webhooks_agent = utils.split_hostmask(webhooks_agent)
         except ValueError:  # If that fails, treat it as just a nick
             webhooks_agent = [webhooks_agent, 'webhooks', 'discord/webhooks-agent']
@@ -822,18 +822,21 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                 current_channel_senders.clear()
 
     def flush(self, channel, message_info):
-        message_text = message_info.pop('text', '').strip()
-        if message_text:
-            if message_info.get('username'):
-                log.debug('(%s) Sending webhook to channel %s with user %s and avatar %s', self.name, channel,
-                          message_info.get('username'), message_info.get('avatar_url'))
-                message_info['webhook'].execute(
-                    content=message_text,
-                    username=message_info['username'],
-                    avatar_url=message_info.get('avatar_url'),
-                )
-            else:
-                channel.send_message(message_text)
+        try:
+            message_text = message_info.pop('text', '').strip()
+            if message_text:
+                if message_info.get('username'):
+                    log.debug('(%s) Sending webhook to channel %s with user %s and avatar %s', self.name, channel,
+                              message_info.get('username'), message_info.get('avatar_url'))
+                    message_info['webhook'].execute(
+                        content=message_text,
+                        username=message_info['username'],
+                        avatar_url=message_info.get('avatar_url'),
+                    )
+                else:
+                    channel.send_message(message_text)
+        except:
+            log.exception('(%s) Error sending message:', self.name)
 
     def _create_child(self, server_id, guild_name):
         """
