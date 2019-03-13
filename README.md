@@ -41,6 +41,10 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
                 #webhooks_agent: false
                 webhooks_agent: Webhooks
                 #webhooks_agent: Webhooks!webhooks@discord/webhooks-agent
+                # If disabled, users that are marked as "Invisible" or "Offline" will not be joined to 
+                # linked channels until they come online. Useful if you have many offline users compared 
+                # to online ones. Note that if this is disabled, PMs cannot be sent to offline Discord users
+                join_offline_users: true
             # another example
             123456789000000000:
                 name: chatutopia

@@ -31,7 +31,7 @@ from disco.bot import Bot, BotConfig
 from disco.bot import Plugin
 from disco.client import Client, ClientConfig
 from disco.gateway import events
-from disco.types import Guild, Channel as DiscordChannel, GuildMember, Message
+from disco.types import Guild, Channel as DiscordChannel, GuildMember, Message, UNSET
 from disco.types.channel import ChannelType
 from disco.types.permissions import Permissions
 from disco.types.user import Status as DiscordStatus
@@ -227,6 +227,10 @@ class DiscordBotPlugin(Plugin):
             log.debug('(%s) Not bursting user %s as their data is not ready yet', self.protocol.name, member)
             return
 
+        if not pylink_netobj.serverdata.get('join_offline_users', True) and \
+                member.user.presence in [DiscordStatus.OFFLINE, DiscordStatus.INVISIBLE, UNSET]:
+            return
+
         if uid in pylink_netobj.users:
             log.debug('(%s) Not reintroducing user %s/%s', self.protocol.name, uid, member.user.username)
             pylink_user = pylink_netobj.users[uid]
@@ -266,7 +270,7 @@ class DiscordBotPlugin(Plugin):
             if channel.type == ChannelType.GUILD_TEXT:
                 self._update_channel_presence(guild, channel, member)
         # Update user presence
-        self._update_user_status(guild.id, uid, member.user.presence)
+        self._update_user_status(guild, uid, member.user.presence)
         return pylink_user
 
     @Plugin.listen('GuildCreate')
@@ -456,13 +460,17 @@ class DiscordBotPlugin(Plugin):
         for attachment in message.attachments.values():
             _send(attachment.url)
 
-    def _update_user_status(self, guild_id, uid, presence):
+    def _update_user_status(self, guild, uid, presence):
         """Handles a Discord presence update."""
-        pylink_netobj = self.protocol._children.get(guild_id)
+        pylink_netobj = self.protocol._children.get(guild.id)
         if pylink_netobj:
             try:
                 u = pylink_netobj.users[uid]
             except KeyError:
+                if not pylink_netobj.serverdata.get('join_offline_users', True) and presence and uid in guild.members:
+                    # User may have come online. Burst them.
+                    self._burst_new_client(guild, guild.members[uid], pylink_netobj)
+                    return
                 log.debug('(%s) _update_user_status: could not fetch user %s', self.protocol.name, uid, exc_info=True)
                 return
             # It seems that presence updates are not sent at all for offline users, so they
@@ -472,7 +480,12 @@ class DiscordBotPlugin(Plugin):
             else:
                 status = DiscordStatus.OFFLINE
 
-            if status != DiscordStatus.ONLINE:
+            if not pylink_netobj.serverdata.get('join_offline_users', True) and \
+                    status in [DiscordStatus.OFFLINE, DiscordStatus.INVISIBLE]:
+                pylink_netobj._remove_client(uid)
+                pylink_netobj.call_hooks([uid, 'QUIT', {'text': 'User has gone offline'}])
+                return
+            elif status != DiscordStatus.ONLINE:
                 awaymsg = self.status_mapping.get(status.value, 'Unknown Status')
             else:
                 awaymsg = ''
@@ -482,7 +495,7 @@ class DiscordBotPlugin(Plugin):
 
     @Plugin.listen('PresenceUpdate')
     def on_presence_update(self, event, *args, **kwargs):
-        self._update_user_status(event.guild_id, event.presence.user.id, event.presence)
+        self._update_user_status(event.guild, event.presence.user.id, event.presence)
 
 class DiscordServer(ClientbotBaseProtocol):
     S2S_BUFSIZE = 0
