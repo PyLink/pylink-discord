@@ -96,7 +96,12 @@ class DiscordBotPlugin(Plugin):
 
     def _burst_guild(self, guild):
         log.info('(%s) bursting guild %s/%s', self.protocol.name, guild.id, guild.name)
-        pylink_netobj = self.protocol._create_child(guild.id, guild.name)
+        try:
+            pylink_netobj = self.protocol._create_child(guild.id, guild.name)
+        except ValueError:
+            log.debug('(%s) not rebursting guild %s/%s as it already exists', self.protocol.name, guild.id, guild.name, exc_info=True)
+            return
+
         pylink_netobj.uplink = None
         pylink_netobj._guild_name = guild.name
 
