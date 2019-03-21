@@ -621,8 +621,8 @@ class DiscordServer(ClientbotBaseProtocol):
                 log.debug('(%s) _get_or_create_webhook: could not get or create webhook for channel %s. Falling back to standard Clientbot behavior',
                           self.name, target, exc_info=True)
                 webhook = None
-            if webhook:
 
+            if webhook:
                 try:
                     remotenet, remoteuser = self.users[source].remote
                     remoteirc = world.networkobjects[remotenet]
@@ -684,7 +684,8 @@ class DiscordServer(ClientbotBaseProtocol):
                 return webhook
         else:
             log.info('(%s) Creating new web-hook on channel %s/%s', self.name, channel_id, self.get_friendly_name(channel_id))
-            return self.virtual_parent.client.api.channels_webhooks_create(channel_id, name=webhook_user)
+            self.channels[channel_id].webhook = webhook = self.virtual_parent.client.api.channels_webhooks_create(channel_id, name=webhook_user)
+            return webhook
 
     def _get_user_webhook_data(self, netobj, uid):
         user = netobj.users[uid]
