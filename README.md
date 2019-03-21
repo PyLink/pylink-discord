@@ -94,7 +94,7 @@ Private channels are supported too - just add access so that the bot can read it
     - IRC halfop (+h) corresponds to Kick Members
     - IRC voice (+v) corresponds to Send Messages
 - Basic formatting works mostly OK (bold, underline, italic).
-- Attachments and embeds on Discord are relayed as text to IRC.
+- Attachments sent to Discord are relayed as a link to IRC.
 
 ## TODO
 
