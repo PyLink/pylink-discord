@@ -44,6 +44,7 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
                 # If disabled, users that are marked as "Invisible" or "Offline" will not be joined to 
                 # linked channels until they come online. Useful if you have many offline users compared 
                 # to online ones. Note that if this is disabled, PMs cannot be sent to offline Discord users
+                # Changes to this setting require a reconnect to apply. This defaults to true if not set.
                 join_offline_users: true
             # another example
             123456789000000000:

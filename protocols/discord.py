@@ -153,7 +153,9 @@ class DiscordBotPlugin(Plugin):
             try:
                 pylink_user = pylink_netobj.users[uid]
             except KeyError:
-                log.error("(%s) Could not update user %s(%s)/%s as the user object does not exist", self.protocol.name, guild.id, guild.name, uid)
+                # Don't log an error if we don't expect offline users to exist
+                if self._should_burst_user(pylink_netobj, member.user):
+                    log.error("(%s) Could not update user %s(%s)/%s as the user object does not exist", self.protocol.name, guild.id, guild.name, uid)
                 continue
 
             channel_permissions = channel.get_permissions(member)
@@ -227,8 +229,7 @@ class DiscordBotPlugin(Plugin):
             log.debug('(%s) Not bursting user %s as their data is not ready yet', self.protocol.name, member)
             return
 
-        if not pylink_netobj.serverdata.get('join_offline_users', True) and \
-                member.user.presence in [DiscordStatus.OFFLINE, DiscordStatus.INVISIBLE, UNSET]:
+        if not self._should_burst_user(pylink_netobj, member.user):
             return
 
         if uid in pylink_netobj.users:
@@ -467,7 +468,7 @@ class DiscordBotPlugin(Plugin):
             try:
                 u = pylink_netobj.users[uid]
             except KeyError:
-                if not pylink_netobj.serverdata.get('join_offline_users', True) and presence and uid in guild.members:
+                if not pylink_netobj.join_offline_users and presence and uid in guild.members:
                     # User may have come online. Burst them.
                     self._burst_new_client(guild, guild.members[uid], pylink_netobj)
                     return
@@ -480,8 +481,7 @@ class DiscordBotPlugin(Plugin):
             else:
                 status = DiscordStatus.OFFLINE
 
-            if not pylink_netobj.serverdata.get('join_offline_users', True) and \
-                    status in [DiscordStatus.OFFLINE, DiscordStatus.INVISIBLE]:
+            if not self._should_burst_user(pylink_netobj, u.discord_user.user):
                 pylink_netobj._remove_client(uid)
                 pylink_netobj.call_hooks([uid, 'QUIT', {'text': 'User has gone offline'}])
                 return
@@ -496,6 +496,12 @@ class DiscordBotPlugin(Plugin):
     @Plugin.listen('PresenceUpdate')
     def on_presence_update(self, event, *args, **kwargs):
         self._update_user_status(event.guild, event.presence.user.id, event.presence)
+
+    @staticmethod
+    def _should_burst_user(pylink_netobj, user):
+        return pylink_netobj.join_offline_users or \
+               (user.presence != UNSET and user.presence.status not in [DiscordStatus.OFFLINE, DiscordStatus.INVISIBLE])
+
 
 class DiscordServer(ClientbotBaseProtocol):
     S2S_BUFSIZE = 0
@@ -517,6 +523,8 @@ class DiscordServer(ClientbotBaseProtocol):
         self.uidgen = PUIDGenerator('PUID')
 
         self.servers[self.sid] = Server(self, None, server_id, internal=False, desc=guild_name)
+
+        self.join_offline_users = self.serverdata.get('join_offline_users', True)
 
     def _init_vars(self):
         super()._init_vars()
