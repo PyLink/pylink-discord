@@ -83,6 +83,7 @@ class DiscordBotPlugin(Plugin):
         'INVISIBLE': 'Offline',  # not a typo :)
         'OFFLINE': 'Offline',
     }
+    _dm_channels = {}
 
     def __init__(self, protocol, bot, config):
         self.protocol = protocol
@@ -408,39 +409,68 @@ class DiscordBotPlugin(Plugin):
         if message.author.id == self.me.id:
             return
 
+        text = message.content
         if not message.guild:
-            # This is a DM
-            # see if we've seen this user on any of our servers
-            for discord_sid, server in self.protocol._children.items():
-                if message.author.id in server.users:
-                    target = self.me.id
-                    subserver = discord_sid
-                    #server.users[message.author.id].dm_channel = message.channel
-                    #server.channels[message.channel.id] = c  # Create a new channel
-                    #c.discord_channel = message.channel
+            # This is a DM.
+            target = self.me.id
+            if message.author.id not in self._dm_channels:
+                self._dm_channels[message.author.id] = message.channel
 
-                    break
-            if not (subserver or target):
+            # If we are on multiple guilds, force the sender to choose a server to send from, since
+            # every PyLink event needs to be associated with a subserver.
+            if len(self.client.state.guilds) > 1:
+                log.debug('discord: received DM from %s/%s - forcing guild name disambiguation', message.author.id,
+                          message.author)
+                fail = False
+                try:
+                    netname, text = text.split(' ', 1)
+                except ValueError:
+                    fail = True
+                else:
+                    # Unrecognized guild
+                    if netname not in world.networkobjects or \
+                            world.networkobjects[netname].sid not in self.protocol._children:
+                        fail = True
+
+                if fail:
+                    message.channel.send_message(
+                        "To PM me, please prefix your messages with a guild name so I know where to "
+                        "process your messages: <guild name> <command> <args>\n"
+                        "Guilds I know about: %s" %
+                        ', '.join(map(lambda nwobj: nwobj.name, self.protocol._children.values()))
+                    )
+                    return
+                else:
+                    log.debug('discord: using guild %s/%s for DM from %s/%s', world.networkobjects[netname].sid, netname,
+                              message.author.id, message.author)
+                    subserver = world.networkobjects[netname].sid
+            elif self.client.state.guilds:
+                # We should be on at least one guild, right?
+                subserver = list(self.protocol._children.keys())[0]
+                log.debug('discord: using guild %s for DM from %s', subserver, message.author.id)
+            else:
+                log.error('discord: cannot process message from user %s/%s since we are not in any guilds',
+                          message.author.id, message.author)
                 return
         else:
             subserver = message.guild.id
             target = message.channel.id
 
+            def format_user_mentions(u):
+                # Try to find the user's guild nick, falling back to the user if that fails
+                if message.guild and u.id in message.guild.members:
+                    return '@' + message.guild.members[u.id].name
+                else:
+                    return '@' + str(u)
+
+            # Translate mention IDs to their names
+            text = message.replace_mentions(user_replace=format_user_mentions,
+                                            role_replace=lambda r: '@' + str(r),
+                                            channel_replace=str)
+
         if not subserver:
             return
 
-        def format_user_mentions(u):
-            # Try to find the user's guild nick, falling back to the user if that fails
-            if message.guild and u.id in message.guild.members:
-                return '@' + message.guild.members[u.id].name
-            else:
-                return '@' + str(u)
-
-            # Translate mention IDs to their names
-
-        text = message.replace_mentions(user_replace=format_user_mentions,
-                                        role_replace=lambda r: '@' + str(r),
-                                        channel_replace=str)
         try:
             text = D2IFormatter().format(text)
         except:
@@ -637,11 +667,14 @@ class DiscordServer(ClientbotBaseProtocol):
 
     def message(self, source, target, text, notice=False):
         """Sends messages to the target."""
-        if target in self.users:
-            userobj = self.users[target]
-            # Get or create the DM channel for this user
-            self.users[target].dm_channel = getattr(userobj, 'dm_channel', userobj.discord_user.user.open_dm())
-            discord_target = self.users[target].dm_channel
+        if target in self.virtual_parent.client.state.users:
+            try:
+                discord_target = self.bot_plugin._dm_channels[target]
+                log.debug('(%s) Found DM channel for %s: %s', self.name, target, discord_target)
+            except KeyError:
+                u = self.virtual_parent.client.state.users[target]
+                discord_target = self.bot_plugin._dm_channels[target] = u.open_dm()
+                log.debug('(%s) Creating new DM channel for %s: %s', self.name, target, discord_target)
 
         elif target in self.channels:
             discord_target = self.channels[target].discord_channel
