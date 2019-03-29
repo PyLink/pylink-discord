@@ -34,7 +34,7 @@ from disco.bot import Bot, BotConfig
 from disco.bot import Plugin
 from disco.client import Client, ClientConfig
 from disco.gateway import events
-from disco.types import Guild, Channel as DiscordChannel, GuildMember, Message, UNSET
+from disco.types import Guild, Channel as DiscordChannel, GuildMember, Message
 from disco.types.channel import ChannelType
 from disco.types.permissions import Permissions
 from disco.types.user import Status as DiscordStatus
@@ -161,10 +161,8 @@ class DiscordBotPlugin(Plugin):
             try:
                 pylink_user = pylink_netobj.users[uid]
             except KeyError:
-                # Don't log an error if we don't expect offline users to exist
-                if self._should_burst_user(pylink_netobj, member.user):
-                    log.error("(%s) Could not update user %s(%s)/%s as the user object does not exist", self.protocol.name, guild.id, guild.name, uid)
-                continue
+                log.error("(%s) Could not update user %s(%s)/%s as the user object does not exist", self.protocol.name, guild.id, guild.name, uid)
+                return
 
             channel_permissions = channel.get_permissions(member)
             has_perm = channel_permissions.can(Permissions.read_messages)
@@ -173,10 +171,14 @@ class DiscordBotPlugin(Plugin):
             #log.debug('discord: channel permissions are %s', str(channel_permissions.to_dict()))
             if has_perm:
                 if uid not in pylink_channel.users:
-                    log.debug('discord: joining member %s to %s/%s', member, channel.id, channel)
+                    log.debug('discord: adding member %s to %s/%s', member, channel.id, channel)
                     pylink_user.channels.add(channel.id)
                     pylink_channel.users.add(uid)
-                    users_joined.append(uid)
+
+                    # Hide offline users if join_offline_users is enabled
+                    if pylink_netobj.join_offline_users or (member.user.presence and \
+                            member.user.presence.status not in (DiscordStatus.OFFLINE, DiscordStatus.INVISIBLE)):
+                        users_joined.append(uid)
 
                 for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
                     prefixlist = pylink_channel.prefixmodes[irc_mode] # channel.prefixmodes['op'] etc.
@@ -235,9 +237,6 @@ class DiscordBotPlugin(Plugin):
 
         if not member.name:
             log.debug('(%s) Not bursting user %s as their data is not ready yet', self.protocol.name, member)
-            return
-
-        if not self._should_burst_user(pylink_netobj, member.user):
             return
 
         if uid in pylink_netobj.users:
@@ -477,11 +476,7 @@ class DiscordBotPlugin(Plugin):
             try:
                 u = pylink_netobj.users[uid]
             except KeyError:
-                if not pylink_netobj.join_offline_users and presence and uid in guild.members:
-                    # User may have come online. Burst them.
-                    self._burst_new_client(guild, guild.members[uid], pylink_netobj)
-                    return
-                log.debug('(%s) _update_user_status: could not fetch user %s', self.protocol.name, uid, exc_info=True)
+                log.exception('(%s) _update_user_status: could not fetch user %s', self.protocol.name, uid)
                 return
             # It seems that presence updates are not sent at all for offline users, so they
             # turn into an unset field in disco. I guess this makes sense for saving bandwidth?
@@ -490,26 +485,32 @@ class DiscordBotPlugin(Plugin):
             else:
                 status = DiscordStatus.OFFLINE
 
-            if not self._should_burst_user(pylink_netobj, u.discord_user.user):
-                pylink_netobj._remove_client(uid)
-                pylink_netobj.call_hooks([uid, 'QUIT', {'text': 'User has gone offline'}])
-                return
-            elif status != DiscordStatus.ONLINE:
+            if status != DiscordStatus.ONLINE:
                 awaymsg = self.status_mapping.get(status.value, 'Unknown Status')
             else:
                 awaymsg = ''
 
+            now_invisible = None
+            if not pylink_netobj.join_offline_users:
+                if status in (DiscordStatus.OFFLINE, DiscordStatus.INVISIBLE):
+                    # If we are hiding offline users, set a special flag for relay to quit the user.
+                    log.debug('(%s) Hiding user %s/%s from relay channels as they are offline', pylink_netobj.name,
+                              uid, pylink_netobj.get_friendly_name(uid))
+                    now_invisible = True
+                    u._invisible = True
+                elif (u.away in (self.status_mapping['INVISIBLE'], self.status_mapping['OFFLINE'])):
+                    # User was previously offline - burst them now.
+                    log.debug('(%s) Rejoining user %s/%s from as they are now online', pylink_netobj.name,
+                              uid, pylink_netobj.get_friendly_name(uid))
+                    now_invisible = False
+                    u._invisible = False
+
             u.away = awaymsg
-            pylink_netobj.call_hooks([uid, 'AWAY', {'text': awaymsg}])
+            pylink_netobj.call_hooks([uid, 'AWAY', {'text': awaymsg, 'now_invisible': now_invisible}])
 
     @Plugin.listen('PresenceUpdate')
     def on_presence_update(self, event, *args, **kwargs):
         self._update_user_status(event.guild, event.presence.user.id, event.presence)
-
-    @staticmethod
-    def _should_burst_user(pylink_netobj, user):
-        return pylink_netobj.join_offline_users or \
-               (user.presence != UNSET and user.presence.status not in [DiscordStatus.OFFLINE, DiscordStatus.INVISIBLE])
 
 
 class DiscordServer(ClientbotBaseProtocol):
