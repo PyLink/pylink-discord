@@ -399,6 +399,14 @@ class DiscordBotPlugin(Plugin):
             pylink_netobj.users[u].channels.discard(channel.id)
         del pylink_netobj.channels[channel.id]
 
+    def _find_common_guilds(self, uid):
+        """Returns a list of guilds that the user with UID shares with the bot."""
+        common = []
+        for guild_id, guild in self.client.state.guilds.items():  # Check each guild we know about
+            if uid in guild.members:
+                common.append(guild_id)
+        return common
+
     @Plugin.listen('MessageCreate')
     def on_message(self, event: events.MessageCreate, *args, **kwargs):
         message = event.message
@@ -416,40 +424,46 @@ class DiscordBotPlugin(Plugin):
             if message.author.id not in self._dm_channels:
                 self._dm_channels[message.author.id] = message.channel
 
+            common_guilds = self._find_common_guilds(message.author.id)
+
             # If we are on multiple guilds, force the sender to choose a server to send from, since
             # every PyLink event needs to be associated with a subserver.
-            if len(self.client.state.guilds) > 1:
+            if len(common_guilds) > 1:
                 log.debug('discord: received DM from %s/%s - forcing guild name disambiguation', message.author.id,
                           message.author)
                 fail = False
+                guild_id = None
                 try:
                     netname, text = text.split(' ', 1)
                 except ValueError:
                     fail = True
                 else:
-                    # Unrecognized guild
+                    guild_id = world.networkobjects[netname].sid
+                    # Unrecognized guild or not one in common
                     if netname not in world.networkobjects or \
-                            world.networkobjects[netname].sid not in self.protocol._children:
+                            guild_id not in self.protocol._children or \
+                            guild_id not in common_guilds:
                         fail = True
 
                 if fail:
+                    # Build a list of common server *names*
+                    common_servers = [nwobj.name for gid, nwobj in self.protocol._children.items() if gid in common_guilds]
                     message.channel.send_message(
-                        "To PM me, please prefix your messages with a guild name so I know where to "
-                        "process your messages: <guild name> <command> <args>\n"
-                        "Guilds I know about: %s" %
-                        ', '.join(map(lambda nwobj: nwobj.name, self.protocol._children.values()))
+                        "To DM me, please prefix your messages with a guild name so I know where to "
+                        "process your messages: **<guild name> <command> <args>**\n"
+                        "Guilds we have in common: **%s**" % ', '.join(common_servers)
                     )
                     return
                 else:
                     log.debug('discord: using guild %s/%s for DM from %s/%s', world.networkobjects[netname].sid, netname,
                               message.author.id, message.author)
-                    subserver = world.networkobjects[netname].sid
-            elif self.client.state.guilds:
+                    subserver = guild_id
+            elif common_guilds:
                 # We should be on at least one guild, right?
-                subserver = list(self.protocol._children.keys())[0]
+                subserver = common_guilds[0]
                 log.debug('discord: using guild %s for DM from %s', subserver, message.author.id)
             else:
-                log.error('discord: cannot process message from user %s/%s since we are not in any guilds',
+                log.debug('discord: ignoring message from user %s/%s since we are not in any common guilds',
                           message.author.id, message.author)
                 return
         else:
