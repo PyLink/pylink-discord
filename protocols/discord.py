@@ -259,7 +259,7 @@ class DiscordBotPlugin(Plugin):
                                                           host='discord/user/%s' % tag, # XXX make this configurable
                                                           ts=calendar.timegm(member.joined_at.timetuple()), uid=uid, server=guild.id)
             pylink_user.modes.add(('i', None))
-            pylink_user.services_account = uid  # Expose their UID as a services account
+            pylink_user.services_account = str(uid)  # Expose their UID as a services account
             if member.user.bot:
                 pylink_user.modes.add(('B', None))
             pylink_user.discord_user = member
