@@ -75,7 +75,7 @@ class DiscordBotPlugin(Plugin):
          ('halfop', Permissions.KICK_MEMBERS),
          ('voice', Permissions.SEND_MESSAGES),
         ])
-    botuser = None
+    me = None
     status_mapping = {
         'ONLINE': 'Online',
         'IDLE': 'Idle',
@@ -90,7 +90,7 @@ class DiscordBotPlugin(Plugin):
 
     @Plugin.listen('Ready')
     def on_ready(self, event, *args, **kwargs):
-        self.botuser = event.user.id
+        self.me = event.user
         log.info('(%s) got ready event, starting messaging thread', self.protocol.name)
         self._message_thread = threading.Thread(name="Messaging thread for %s" % self.name,
                                                 target=self.protocol._message_builder, daemon=True)
@@ -109,6 +109,13 @@ class DiscordBotPlugin(Plugin):
         pylink_netobj._guild_name = guild.name
 
         pylink_netobj._burst_webhooks_agent()
+
+        # Create a user for ourselves.
+        member = guild.members[self.me.id]
+        pylink_netobj.pseudoclient = pylink_netobj.users[self.me.id] = \
+            User(pylink_netobj, nick=member.name,
+                 ts=calendar.timegm(member.joined_at.timetuple()),
+                 uid=self.me.id, server=guild.id)
 
         for member in guild.members.values():
             self._burst_new_client(guild, member, pylink_netobj)
@@ -242,7 +249,7 @@ class DiscordBotPlugin(Plugin):
         if uid in pylink_netobj.users:
             log.debug('(%s) Not reintroducing user %s/%s', self.protocol.name, uid, member.user.username)
             pylink_user = pylink_netobj.users[uid]
-        else:
+        elif uid != self.me.id:
             tag = str(member.user)  # get their name#1234 tag
             username = member.user.username  # this is just the name portion
             realname = '%s @ Discord/%s' % (tag, guild.name)
@@ -257,9 +264,6 @@ class DiscordBotPlugin(Plugin):
                 pylink_user.modes.add(('B', None))
             pylink_user.discord_user = member
 
-            if uid == self.botuser:
-                pylink_netobj.pseudoclient = pylink_user
-
             pylink_netobj.call_hooks([
                 guild.id,
                 'UID',
@@ -273,13 +277,15 @@ class DiscordBotPlugin(Plugin):
                     'ip': pylink_user.ip
                 }
             ])
+        else:
+            return
+        # Update user presence
+        self._update_user_status(guild, uid, member.user.presence)
 
         # Calculate which channels the user belongs to
         for channel in guild.channels.values():
             if channel.type == ChannelType.GUILD_TEXT:
                 self._update_channel_presence(guild, channel, member)
-        # Update user presence
-        self._update_user_status(guild, uid, member.user.presence)
         return pylink_user
 
     @Plugin.listen('GuildCreate')
@@ -399,7 +405,7 @@ class DiscordBotPlugin(Plugin):
         target = None
 
         # If the bot is the one sending the message, don't do anything
-        if message.author.id == self.botuser:
+        if message.author.id == self.me.id:
             return
 
         if not message.guild:
@@ -407,7 +413,7 @@ class DiscordBotPlugin(Plugin):
             # see if we've seen this user on any of our servers
             for discord_sid, server in self.protocol._children.items():
                 if message.author.id in server.users:
-                    target = self.botuser
+                    target = self.me.id
                     subserver = discord_sid
                     #server.users[message.author.id].dm_channel = message.channel
                     #server.channels[message.channel.id] = c  # Create a new channel
@@ -519,6 +525,7 @@ class DiscordServer(ClientbotBaseProtocol):
     def __init__(self, _, parent, server_id, guild_name):
         self.sid = server_id  # Allow serverdata to work first
         self.virtual_parent = parent
+        self.bot_plugin = parent.bot_plugin
 
         # Try to find a predefined server name; if that fails, use the server id.
         # We don't use the guild name as the PyLink network name because they can be
@@ -600,6 +607,9 @@ class DiscordServer(ClientbotBaseProtocol):
         Returns the guild name.
         """
         return 'Discord/' + self._guild_name
+
+    def is_internal_client(self, *args, **kwargs):
+        return self.virtual_parent.is_internal_client(*args, **kwargs)
 
     WEBHOOKS_AGENT_REALNAME = 'pylink-discord webhooks agent'
     def _burst_webhooks_agent(self):
@@ -793,6 +803,12 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
     def is_server_name(self, s):
         """Returns whether the string given is a valid IRC server name."""
         return s in self.bot_plugin.state.guilds
+
+    def is_internal_client(self, uid):
+        """Returns whether the given client is an internal one."""
+        if uid == self.bot_plugin.me.id:
+            return True
+        return super().is_internal_client(uid)
 
     def get_friendly_name(self, entityid, caller=None):
         """
