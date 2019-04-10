@@ -580,9 +580,8 @@ class DiscordServer(ClientbotBaseProtocol):
             raise ValueError("Attempting to reintroduce network with name %r" % name)
 
         super().__init__(name)
-        self.sidgen = PUIDGenerator('DiscordInternalSID')
+        self.sidgen = PUIDGenerator('DiscordInternal')
         self.uidgen = PUIDGenerator('PUID')
-
         self.servers[self.sid] = Server(self, None, server_id, internal=False, desc=guild_name)
 
         self.join_offline_users = self.serverdata.get('join_offline_users', True)
@@ -652,8 +651,9 @@ class DiscordServer(ClientbotBaseProtocol):
         """
         return 'Discord/' + self._guild_name
 
-    def is_internal_client(self, *args, **kwargs):
-        return self.virtual_parent.is_internal_client(*args, **kwargs)
+    def is_internal_client(self, uid, **kwargs):
+        """Returns whether the given UID is an internal PyLink client."""
+        return uid == self.bot_plugin.me.id or super().is_internal_client(uid, **kwargs)
 
     WEBHOOKS_AGENT_REALNAME = 'pylink-discord webhooks agent'
     def _burst_webhooks_agent(self):
