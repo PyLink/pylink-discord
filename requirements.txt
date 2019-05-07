@@ -1,3 +1,4 @@
 git+https://github.com/jlu5/pylink@devel#egg=pylinkirc
 git+https://github.com/b1naryth1ef/disco#egg=disco-py
 requests[security]
+libgravatar[gravatar-support]
