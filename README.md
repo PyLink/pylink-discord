@@ -4,7 +4,7 @@ An alpha module linking [PyLink](https://github.com/jlu5/PyLink) to Discord!
 
 ## Requirements
 - CPython 3.5 or later
-- PyLink 2.1-dev (currently in the [**`devel`**](https://github.com/jlu5/PyLink/tree/devel) branch in git)
+- PyLink 2.1-alpha1+ (currently in the [**`devel`**](https://github.com/jlu5/PyLink/tree/devel) branch in git)
 - [disco](https://github.com/b1naryth1ef/disco) (git master, commit [7fbca825](https://github.com/b1naryth1ef/disco/commit/7fbca825f85a0936487d0b780dc53dcdbb920e21) or later) - Discord API library
 
 You can also install these dependencies via pip (for Python 3) using: `pip3 install -r requirements.txt`
