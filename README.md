@@ -5,7 +5,7 @@ An alpha module linking [PyLink](https://github.com/jlu5/PyLink) to Discord!
 ## Requirements
 - CPython 3.5 or later
 - PyLink 2.1-dev (currently in the [**`devel`**](https://github.com/jlu5/PyLink/tree/devel) branch in git)
-- [jlu5/disco](https://github.com/jlu5/disco) - fork of the [Disco](https://github.com/b1naryth1ef/disco) Discord API library with some permissions fixes.
+- [disco](https://github.com/b1naryth1ef/disco) (git master, commit [7fbca825](https://github.com/b1naryth1ef/disco/commit/7fbca825f85a0936487d0b780dc53dcdbb920e21) or later) - Discord API library
 
 You can also install these dependencies via pip (for Python 3) using: `pip3 install -r requirements.txt`
 
@@ -41,8 +41,8 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
                 #webhooks_agent: false
                 webhooks_agent: Webhooks
                 #webhooks_agent: Webhooks!webhooks@discord/webhooks-agent
-                # If disabled, users that are marked as "Invisible" or "Offline" will not be joined to 
-                # linked channels until they come online. Useful if you have many offline users compared 
+                # If disabled, users that are marked as "Invisible" or "Offline" will not be joined to
+                # linked channels until they come online. Useful if you have many offline users compared
                 # to online ones. Note that if this is disabled, PMs cannot be sent to offline Discord users
                 # Changes to this setting require a reconnect to apply. This defaults to true if not set.
                 join_offline_users: true
