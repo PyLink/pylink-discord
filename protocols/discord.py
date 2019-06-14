@@ -919,21 +919,21 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                 current_channel_senders.clear()
 
     def flush(self, channel, message_info):
-        try:
-            message_text = message_info.pop('text', '').strip()
-            if message_text:
-                if message_info.get('username'):
-                    log.debug('(%s) Sending webhook to channel %s with user %s and avatar %s', self.name, channel,
-                              message_info.get('username'), message_info.get('avatar_url'))
+        message_text = message_info.pop('text', '').strip()
+        if message_text:
+            if message_info.get('username'):
+                log.debug('(%s) Sending webhook to channel %s with user %s and avatar %s', self.name, channel,
+                          message_info.get('username'), message_info.get('avatar_url'))
+                try:
                     message_info['webhook'].execute(
                         content=message_text,
                         username=message_info['username'],
                         avatar_url=message_info.get('avatar_url'),
                     )
-                else:
-                    channel.send_message(message_text)
-        except:
-            log.exception('(%s) Error sending message:', self.name)
+                    return
+                except:
+                    log.exception('(%s) Error sending webhook message:', self.name)
+            channel.send_message(message_text)
 
     def _create_child(self, server_id, guild_name):
         """
