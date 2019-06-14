@@ -34,14 +34,6 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
             # overdrive networks (our magical server!)
             497939890063802369:
                 name: ovddsc
-                use_webhooks: false
-                # Sets the name of the dummy client used to forward webhooks from non-PyLink sources,
-                # since they don't correspond to Discord users. Valid values include false (disable webhook
-                # forwarding entirely), a nick, or a full hostmask (nick!user@host).
-                # This defaults to false if not set.
-                #webhooks_agent: false
-                webhooks_agent: Webhooks
-                #webhooks_agent: Webhooks!webhooks@discord/webhooks-agent
                 # If disabled, users that are marked as "Invisible" or "Offline" will not be joined to
                 # linked channels until they come online. Useful if you have many offline users compared
                 # to online ones. Note that if this is disabled, PMs cannot be sent to offline Discord users
@@ -50,30 +42,9 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
             # another example
             123456789000000000:
                 name: chatutopia
-                use_webhooks: true
 
         # Sets whether we should burst Discord guild owners as IRC owners
         show_owner_status: true
-
-        # Sets the format for usernames when using webhooks: supported fields include user fields
-        # ($nick, $ident, $host, etc.) as well as the network name ($netname) and short network tag ($nettag)
-        webhook_user_format: "$nick @ IRC/$netname"
-
-        # You can associate IRC services accounts with preferred avatar URLs. Currently this is
-        # quite limited and requires hardcoding things in the config; eventually there will be
-        # a self-service process to do this.
-        #
-        # Gravatar emails are supported in the form "gravatar:some@email.com"
-        # http:// and https:// URLs also work.
-        avatars:
-            user1: "gravatar:user1@example.com"
-            abcd: "https://abcd.example.com/avatar.png"
-
-        # For users without an avatar set, you can use a default avatar URL (http or https).
-        # If this is unset, the bot will just use the default webhook icon (which you can customize
-        # per channel if desired).
-        default_avatar_url: "https://ircnet.overdrivenetworks.com/img/relaypic.png"
-
 ```
 
 6) Start PyLink using the `pylink-discord` wrapper in the repository root. This is **important** as this wrapper applies gevent patching, which is required by the underlying disco library.
