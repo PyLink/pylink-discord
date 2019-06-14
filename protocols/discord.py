@@ -438,12 +438,14 @@ class DiscordBotPlugin(Plugin):
                 except ValueError:
                     fail = True
                 else:
-                    guild_id = world.networkobjects[netname].sid
-                    # Unrecognized guild or not one in common
-                    if netname not in world.networkobjects or \
-                            guild_id not in self.protocol._children or \
-                            guild_id not in common_guilds:
+                    if netname not in world.networkobjects:
                         fail = True
+                    else:
+                        guild_id = world.networkobjects[netname].sid
+                        # Unrecognized guild or not one in common
+                        if guild_id not in self.protocol._children or \
+                                guild_id not in common_guilds:
+                            fail = True
 
                 if fail:
                     # Build a list of common server *names*
