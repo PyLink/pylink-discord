@@ -909,9 +909,9 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                         else:
                             return
 
-                        for line in message_parts:
-                            netobj.call_hooks([sender.uid, 'CLIENTBOT_MESSAGE', {'target': pylink_target, 'text': line}])
-                        return
+                    for line in message_parts:
+                        netobj.call_hooks([sender.uid, 'CLIENTBOT_MESSAGE', {'target': pylink_target, 'text': line}])
+                    return
                 else:
                     # This is a forwarded PM - prefix the message with its sender info.
                     pm_format = self.serverdata.get('pm_format', "Message from $nick @ $netname: $text")
