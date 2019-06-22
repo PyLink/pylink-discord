@@ -370,6 +370,13 @@ class DiscordBotPlugin(Plugin):
             # XXX: make the message configurable
             pylink_netobj.call_hooks([event.user.id, 'QUIT', {'text': 'User left the guild'}])
 
+    @Plugin.listen('WebhooksUpdate')
+    def on_webhooks_update(self, event):
+        if event.channel_id in self.protocol.webhooks:
+            log.debug('(%s) Invalidating webhook %s due to webhook update on guild %s/channel %s',
+                      self.protocol.name, self.protocol.webhooks[event.channel_id], event.guild_id, event.channel_id)
+            del self.protocol.webhooks[event.channel_id]
+
     @Plugin.listen('ChannelCreate')
     @Plugin.listen('ChannelUpdate')
     def on_channel_update(self, event, *args, **kwargs):
