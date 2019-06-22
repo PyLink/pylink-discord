@@ -373,7 +373,7 @@ class DiscordBotPlugin(Plugin):
     @Plugin.listen('WebhooksUpdate')
     def on_webhooks_update(self, event):
         if event.channel_id in self.protocol.webhooks:
-            log.debug('(%s) Invalidating webhook %s due to webhook update on guild %s/channel %s',
+            log.info('(%s) Invalidating webhook %s due to webhook update on guild %s/channel %s',
                       self.protocol.name, self.protocol.webhooks[event.channel_id], event.guild_id, event.channel_id)
             del self.protocol.webhooks[event.channel_id]
 
@@ -803,7 +803,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         """
         if channel.id in self.webhooks:  # We've already saved this webhook
             wh = self.webhooks[channel.id]
-            log.debug('discord: using saved webhook %s for channel %s', wh, channel)
+            log.debug('discord: Using saved webhook %s (%s) for channel %s', wh.id, wh.name, channel)
             return wh
 
         # Generate a webhook name based off a configurable prefix and the channel ID
@@ -812,12 +812,12 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         for wh in channel.get_webhooks():
             if wh.name == webhook_name:  # This hook matches our name
                 self.webhooks[channel.id] = wh
-                log.debug('discord: using existing webhook %s for channel %s', wh, channel)
+                log.info('discord: Using existing webhook %s (%s) for channel %s', wh.id, webhook_name, channel)
                 return wh
 
         # If we didn't find any webhooks, create a new one
         wh = self.webhooks[channel.id] = channel.create_webhook(name=webhook_name)
-        log.debug('discord: created new webhook %s for channel %s', wh, channel)
+        log.info('discord: Created new webhook %s (%s) for channel %s', wh.id, wh.name, channel)
         return wh
 
     def _get_webhook_fields(self, user):
