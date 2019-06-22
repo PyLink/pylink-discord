@@ -897,8 +897,15 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                         try:
                             webhook = self._get_webhook(channel)
                             webhook.execute(content=text, username=webhook_fake_username, avatar_url=user_fields['avatar'])
+                        except APIException as e:
+                            log.exception("(%s) Failed to send webhook message to channel %s", self.name, channel)
+                            if e.status_code == 10015 and channel.id in self.webhooks:
+                                log.info("(%s) Invalidating webhook %s for channel %s due to Unknown Webhook error (10015)",
+                                         self.name, self.webhooks[channel.id], channel)
+                                del self.webhooks[channel.id]
+
                         except:
-                            log.exception("(%s) Failed to send webhook to channel %s", self.name, channel)
+                            log.exception("(%s) Failed to send webhook message to channel %s", self.name, channel)
                         else:
                             return
 
