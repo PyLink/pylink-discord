@@ -448,11 +448,14 @@ class DiscordBotPlugin(Plugin):
                 if fail:
                     # Build a list of common server *names*
                     common_servers = [nwobj.name for gid, nwobj in self.protocol._children.items() if gid in common_guilds]
-                    message.channel.send_message(
-                        "To DM me, please prefix your messages with a guild name so I know where to "
-                        "process your messages: **<guild name> <command> <args>**\n"
-                        "Guilds we have in common: **%s**" % ', '.join(common_servers)
-                    )
+                    try:
+                        message.channel.send_message(
+                            "To DM me, please prefix your messages with a guild name so I know where to "
+                            "process your messages: **<guild name> <command> <args>**\n"
+                            "Guilds we have in common: **%s**" % ', '.join(common_servers)
+                        )
+                    except:
+                        log.exception("(%s) Could not send message to user %s", self.name, message.author)
                     return
                 else:
                     log.debug('discord: using guild %s/%s for DM from %s/%s', world.networkobjects[netname].sid, netname,
@@ -777,7 +780,10 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                 joined_messages[channel].append(message_text)
             except queue.Empty:  # No more messages to look at - send them now
                 for channel, messages in joined_messages.items():
-                    channel.send_message('\n'.join(messages))
+                    try:
+                        channel.send_message('\n'.join(messages))
+                    except Exception as e:
+                        log.exception("(%s) Could not send message to Discord/%s", self.name, channel)
                 joined_messages.clear()
 
     def _create_child(self, server_id, guild_name):
