@@ -813,6 +813,58 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         log.debug('discord: created new webhook %s for channel %s', wh, channel)
         return wh
 
+    def _get_webhook_fields(self, user):
+        """
+        Returns a dict of Relay substitution fields for the given User object.
+        This attempts to find the original user via Relay if the .remote metadata field is set.
+
+        The output includes all keys provided in User.get_fields(), plus the following:
+            netname: The full network name of the network 'user' belongs to
+            nettag: The short network tag of the network 'user' belongs to
+            avatar: The URL to the user's avatar (str), or None if no avatar is specified
+        """
+        # Try to lookup the remote user data via relay metadata
+        if hasattr(user, 'remote'):
+            remotenet, remoteuid = user.remote
+            try:
+                netobj = world.networkobjects[remotenet]
+                user = netobj.users[remoteuid]
+            except LookupError:
+                netobj = user._irc
+
+        fields = user.get_fields()
+        fields['netname'] = netobj.get_full_network_name()
+        fields['nettag'] = netobj.name
+
+        default_avatar_url = self.serverdata.get('default_avatar_url')
+        avatar = None
+        # XXX: we'll have a more rigorous matching system later on
+        if user.services_account in self.serverdata.get('avatars', {}):
+            avatar_url = self.serverdata['avatars'][user.services_account]
+            p = urllib.parse.urlparse(avatar_url)
+            log.debug('(%s) Got raw avatar URL %s for user %s', self.name, avatar_url, user)
+
+            if p.scheme == 'gravatar' and libgravatar:  # gravatar:hello@example.com
+                try:
+                    g = libgravatar.Gravatar(p.path)
+                    log.debug('(%s) Using Gravatar email %s for user %s', self.name, p.path, user)
+                    avatar = g.get_image(use_ssl=True)
+                except:
+                    log.exception('Failed to obtain Gravatar image for user %s/%s', user, p.path)
+
+            elif p.scheme in ('http', 'https'):  # a direct image link
+                avatar = avatar_url
+
+            else:
+                log.warning('(%s) Unknown avatar URI %s for user %s', self.name, avatar_url, user)
+        elif default_avatar_url:
+            log.debug('(%s) Avatar not defined for user %s; using default avatar %s', self.name, user, default_avatar_url)
+            avatar = default_avatar_url
+        else:
+            log.debug('(%s) Avatar not defined for user %s; using default webhook avatar', self.name, user)
+        fields['avatar'] = avatar
+        return fields
+
     def _message_builder(self):
         """
         Discord message queue handler. Also supports virtual users via webhooks.
@@ -822,26 +874,35 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             Wrapper to send a joined message.
             """
             text = '\n'.join(message_parts)
+
             # Handle the case when the sender is not the PyLink client (sender != None)
-            # Use either virtual webhook users or CLIENTBOT_MESSAGE forwarding (relay_clientbot).
-            if sender and channel.guild:
-                netobj = self._children[channel.guild.id]
-                if netobj.serverdata.get('use_webhooks'):
-                    user_format = self.serverdata.get('webhook_user_format', "$nick @ IRC")
-                    tmpl = string.Template(user_format)
-                    webhook_fake_username = tmpl.safe_substitute(sender.get_fields())
+            # For channels, use either virtual webhook users or CLIENTBOT_MESSAGE forwarding (relay_clientbot).
+            if sender:
+                user_fields = self._get_webhook_fields(sender)
 
-                    try:
-                        webhook = self._get_webhook(channel)
-                        webhook.execute(content=text, username=webhook_fake_username)
-                    except:
-                        log.exception("(%s) Failed to send webhook to channel %s", self.name, channel)
-                    else:
+                if channel.guild:  # This message belongs to a channel
+                    netobj = self._children[channel.guild.id]
+                    if netobj.serverdata.get('use_webhooks'):
+                        user_format = self.serverdata.get('webhook_user_format', "$nick @ $netname")
+                        tmpl = string.Template(user_format)
+                        webhook_fake_username = tmpl.safe_substitute(self._get_webhook_fields(sender))
+
+                        try:
+                            webhook = self._get_webhook(channel)
+                            webhook.execute(content=text, username=webhook_fake_username, avatar_url=user_fields['avatar'])
+                        except:
+                            log.exception("(%s) Failed to send webhook to channel %s", self.name, channel)
+                        else:
+                            return
+
+                        for line in message_parts:
+                            netobj.call_hooks([sender.uid, 'CLIENTBOT_MESSAGE', {'target': pylink_target, 'text': line}])
                         return
-
-                    for line in message_parts:
-                        netobj.call_hooks([sender.uid, 'CLIENTBOT_MESSAGE', {'target': pylink_target, 'text': line}])
-                    return
+                else:
+                    # This is a forwarded PM - prefix the message with its sender info.
+                    pm_format = self.serverdata.get('pm_format', "Message from $nick @ $netname: $text")
+                    user_fields['text'] = text
+                    text = string.Template(pm_format).safe_substitute(user_fields)
 
             try:
                 channel.send_message(text)
