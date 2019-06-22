@@ -414,6 +414,8 @@ class DiscordBotPlugin(Plugin):
         # If the bot is the one sending the message, don't do anything
         if message.author.id == self.me.id:
             return
+        elif message.webhook_id:  # Ignore messages from other webhooks for now...
+            return
 
         text = message.content
         if not message.guild:
@@ -658,13 +660,12 @@ class DiscordServer(ClientbotBaseProtocol):
             log.error('(%s) Could not find message target for %s', self.name, target)
             return
 
-        message_data = (discord_target, text)
-        # Send messages from the PyLink bot directly
-        if self.pseudoclient and self.pseudoclient.uid == source:
-            self.virtual_parent.message_queue.put_nowait(message_data)
-            return
+        sourceobj = None
+        if self.pseudoclient and self.pseudoclient.uid != source:
+            sourceobj = self.users.get(source)
 
-        self.call_hooks([source, 'CLIENTBOT_MESSAGE', {'target': target, 'is_notice': notice, 'text': text}])
+        message_data = QueuedMessage(discord_target, target, text, sender=sourceobj, is_notice=notice)
+        self.virtual_parent.message_queue.put_nowait(message_data)
 
     def join(self, client, channel):
         """STUB: Joins a user to a channel."""
@@ -692,6 +693,23 @@ class DiscordServer(ClientbotBaseProtocol):
         """
         return [text]
 
+class QueuedMessage:
+    def __init__(self, channel, pylink_target, text, sender=None, is_notice=False):
+        """
+        Creates a queued message for Discord.
+
+        target: the target Discord channel (disco.types.Channel)
+        pylink_target: the original PyLink message target (int, Discord UID or channel ID)
+        text: the message text (str)
+        sender: optionally, a PyLink User object corresponding to the sender
+        is_notice: whether this message corresponds to an IRC notice (bool)
+        """
+        self.channel = channel
+        self.pylink_target = pylink_target
+        self.text = text
+        self.sender = sender
+        self.is_notice = is_notice
+
 class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
     S2S_BUFSIZE = 0
 
@@ -712,6 +730,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
         self._children = {}
         self.message_queue = queue.Queue()
+        self.webhooks = {}
 
     @staticmethod
     def is_nick(s, nicklen=None):
@@ -765,28 +784,95 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         """
         return [text]
 
+    def _get_webhook(self, channel):
+        """
+        Returns the webhook saved for the given channel, or try to create one if none exists.
+        """
+        if channel.id in self.webhooks:  # We've already saved this webhook
+            wh = self.webhooks[channel.id]
+            log.debug('discord: using saved webhook %s for channel %s', wh, channel)
+            return wh
+
+        # Generate a webhook name based off a configurable prefix and the channel ID
+        webhook_name = '%s-%d' % (self.serverdata.get('webhook_name') or 'PyLinkRelay', channel.id)
+
+        for wh in channel.get_webhooks():
+            if wh.name == webhook_name:  # This hook matches our name
+                self.webhooks[channel.id] = wh
+                log.debug('discord: using existing webhook %s for channel %s', wh, channel)
+                return wh
+
+        # If we didn't find any webhooks, create a new one
+        wh = self.webhooks[channel.id] = channel.create_webhook(name=webhook_name)
+        log.debug('discord: created new webhook %s for channel %s', wh, channel)
+        return wh
+
     def _message_builder(self):
         """
-        Queue handling function that batches channel messages to prevent rate-limiting.
+        Discord message queue handler. Also supports virtual users via webhooks.
         """
-        joined_messages = collections.defaultdict(list)
+        def _send(sender, channel, pylink_target, message_parts):
+            """
+            Wrapper to send a joined message.
+            """
+            text = '\n'.join(message_parts)
+            # Handle the case when the sender is not the PyLink client (sender != None)
+            # Use either virtual webhook users or CLIENTBOT_MESSAGE forwarding (relay_clientbot).
+            if sender and channel.guild:
+                netobj = self._children[channel.guild.id]
+                if netobj.serverdata.get('use_webhooks'):
+                    user_format = self.serverdata.get('webhook_user_format', "$nick @ IRC")
+                    tmpl = string.Template(user_format)
+                    webhook_fake_username = tmpl.safe_substitute(sender.get_fields())
+
+                    try:
+                        webhook = self._get_webhook(channel)
+                        webhook.execute(content=text, username=webhook_fake_username)
+                    except:
+                        log.exception("(%s) Failed to send webhook to channel %s", self.name, channel)
+                    else:
+                        return
+
+                    for line in message_parts:
+                        netobj.call_hooks([sender.uid, 'CLIENTBOT_MESSAGE', {'target': pylink_target, 'text': line}])
+                    return
+
+            try:
+                channel.send_message(text)
+            except Exception as e:
+                log.exception("(%s) Could not send message to channel %s (pylink_target=%s)", self.name, channel, pylink_target)
+
+        joined_messages = collections.defaultdict(collections.deque)
         while not self._aborted.is_set():
             try:
+                # message is an instance of QueuedMessage (defined in this file)
                 message = self.message_queue.get(timeout=BATCH_DELAY)
-                channel, message_text = message
-
                 try:
-                    message_text = I2DFormatter().format(message_text)
+                    message.text = I2DFormatter().format(message.text)
                 except:
-                    log.exception('(%s) Error translating from IRC to Discord: %s', self.name, message_text)
+                    log.exception('(%s) Error translating from IRC to Discord: %s', self.name, message.text)
 
-                joined_messages[channel].append(message_text)
-            except queue.Empty:  # No more messages to look at - send them now
+                # First, buffer messages by channel
+                joined_messages[message.channel].append(message)
+
+            except queue.Empty:  # Then process them together when we run out of things in the queue
                 for channel, messages in joined_messages.items():
-                    try:
-                        channel.send_message('\n'.join(messages))
-                    except Exception as e:
-                        log.exception("(%s) Could not send message to Discord/%s", self.name, channel)
+                    # We want to send a message every time the virtual sender changes, or when we run out of messages
+                    next_message = []
+                    current_sender = None
+                    while messages:
+                        message = messages.popleft()
+                        next_message.append(message.text)
+
+                        if message.sender != current_sender:
+                            current_sender = message.sender
+                            _send(current_sender, channel, message.pylink_target, next_message)
+                            next_message.clear()
+
+                    if next_message:
+                        _send(current_sender, channel, message.pylink_target, next_message)
+                        next_message.clear()
+
                 joined_messages.clear()
 
     def _create_child(self, server_id, guild_name):
