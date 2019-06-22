@@ -24,16 +24,18 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         token: "your.discord.token.keep.this.private!"
         netname: "Discord"
         protocol: discord
+
         # This config block uses guild IDs, so that settings and (PyLink) network names are consistent
-        # across guild renames. You can more easily find IDs by turning on Developer Mode in Discord:
+        # across guild renames. You can easily find IDs by turning on Developer Mode in Discord:
         # https://support.discordapp.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-
-        #
+
         # You SHOULD set a name for every guild your bot is in, or the protocol module will fall back
         # to guild IDs as PyLink network names (which are not pretty!)
         guilds:
             # overdrive networks (our magical server!)
             497939890063802369:
                 name: ovddsc
+                use_webhooks: false
                 # If disabled, users that are marked as "Invisible" or "Offline" will not be joined to
                 # linked channels until they come online. Useful if you have many offline users compared
                 # to online ones. Note that if this is disabled, PMs cannot be sent to offline Discord users
@@ -42,9 +44,34 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
             # another example
             123456789000000000:
                 name: chatutopia
+                use_webhooks: true
 
         # Sets whether we should burst Discord guild owners as IRC owners
         show_owner_status: true
+
+        # Sets the format for usernames when using webhooks: supported fields include user fields
+        # ($nick, $ident, $host, etc.) as well as the network name ($netname) and short network tag ($nettag)
+        webhook_user_format: "$nick @ IRC/$netname"
+
+        # Sets the format used when relaying PMs from IRC to Discord. The same fields as webhook_user_format
+        # apply, plus $text (the contents of the message).
+        pm_format: "Message from $nick @ $netname: $text"
+
+        # You can associate IRC services accounts with preferred avatar URLs. Currently this is
+        # quite limited and requires hardcoding things in the config; eventually there will be
+        # a self-service process to do this.
+        #
+        # Gravatar emails in the form "gravatar:some@email.com" are supported if libgravatar is installed.
+        # http:// and https:// URLs also work.
+        avatars:
+            user1: "gravatar:user1@example.com"
+            abcd: "https://abcd.example.com/avatar.png"
+
+        # For users without an avatar set, you can use a default avatar URL (http or https).
+        # If this is unset, the bot will just use the default webhook icon (which you can customize
+        # per channel if desired).
+        default_avatar_url: "https://ircnet.overdrivenetworks.com/img/relaypic.png"
+
 ```
 
 6) Start PyLink using the `pylink-discord` wrapper in the repository root. This is **important** as this wrapper applies gevent patching, which is required by the underlying disco library.
