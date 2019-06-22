@@ -660,6 +660,12 @@ class DiscordServer(ClientbotBaseProtocol):
             log.error('(%s) Could not find message target for %s', self.name, target)
             return
 
+        if text.startswith('\x01ACTION '):  # Mangle IRC CTCP actions
+            # TODO: possibly allow toggling between IRC style actions (* nick abcd) and Discord style (italicize the text)
+            text = '\x1d%s' % text[8:-1]
+        elif text.startswith('\x01'):
+            return  # Drop other CTCPs
+
         sourceobj = None
         if self.pseudoclient and self.pseudoclient.uid != source:
             sourceobj = self.users.get(source)
