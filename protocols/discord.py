@@ -700,13 +700,16 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
         if 'token' not in self.serverdata:
             raise ProtocolError("No API token defined under server settings")
-        self.client_config = ClientConfig({'token': self.serverdata['token']})
-        self.client = Client(self.client_config)
-        self.bot_config = BotConfig()
-        self.bot = Bot(self.client, self.bot_config)
-        self.bot_plugin = DiscordBotPlugin(self, self.bot, self.bot_config)
+
+        client_config = ClientConfig({'token': self.serverdata['token']})
+        self.client = Client(client_config)
+
+        bot_config = BotConfig()
+        self.bot = Bot(self.client, bot_config)
+
+        self.bot_plugin = DiscordBotPlugin(self, self.bot, bot_config)
         self.bot.add_plugin(self.bot_plugin)
-        #setup_logging(level='DEBUG')
+
         self._children = {}
         self.message_queue = queue.Queue()
 
