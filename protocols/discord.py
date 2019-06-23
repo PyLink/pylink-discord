@@ -599,6 +599,9 @@ class DiscordServer(ClientbotBaseProtocol):
         """
         Implements serverdata property for Discord subservers. This merges in the root serverdata config
         block, plus any guild-specific settings for this guild.
+
+        NOTE: serverdata in DiscordServer is not modifiable because it is dynamically generated.
+        Changes should instead be made to self.virtual_parent.serverdata
         """
         if getattr(self, 'sid', None):
             data = self.virtual_parent.serverdata.copy()
@@ -899,11 +902,23 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                             webhook = self._get_webhook(channel)
                             webhook.execute(content=text[:self.MAX_MESSAGE_SIZE], username=webhook_fake_username, avatar_url=user_fields['avatar'])
                         except APIException as e:
-                            log.exception("(%s) Failed to send webhook message to channel %s", self.name, channel)
-                            if e.status_code == 10015 and channel.id in self.webhooks:
+                            if e.code == 10015 and channel.id in self.webhooks:
                                 log.info("(%s) Invalidating webhook %s for channel %s due to Unknown Webhook error (10015)",
                                          self.name, self.webhooks[channel.id], channel)
                                 del self.webhooks[channel.id]
+                            elif e.code == 50013:
+                                # Prevent spamming errors: disable webhooks we don't have the right permissions
+                                log.warning("(%s) Disabling webhooks on guild %s/%s due to insufficient permissions (50013). Rehash to re-enable.",
+                                            self.name, channel.guild.id, channel.guild.name)
+                                self.serverdata.update(
+                                    {'guilds':
+                                        {channel.guild.id:
+                                            {'use_webhooks': False}
+                                        }
+                                    })
+                            else:
+                                log.error("(%s) Caught API exception when sending webhook message to channel %s: %s/%s", self.name, channel, e.response.status_code, e.code)
+                            log.debug("(%s) APIException full traceback:", self.name, exc_info=True)
 
                         except:
                             log.exception("(%s) Failed to send webhook message to channel %s", self.name, channel)
