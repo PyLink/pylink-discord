@@ -872,6 +872,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         fields['avatar'] = avatar
         return fields
 
+    MAX_MESSAGE_SIZE = 2000
     def _message_builder(self):
         """
         Discord message queue handler. Also supports virtual users via webhooks.
@@ -896,7 +897,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
                         try:
                             webhook = self._get_webhook(channel)
-                            webhook.execute(content=text, username=webhook_fake_username, avatar_url=user_fields['avatar'])
+                            webhook.execute(content=text[:self.MAX_MESSAGE_SIZE], username=webhook_fake_username, avatar_url=user_fields['avatar'])
                         except APIException as e:
                             log.exception("(%s) Failed to send webhook message to channel %s", self.name, channel)
                             if e.status_code == 10015 and channel.id in self.webhooks:
@@ -919,7 +920,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                     text = string.Template(pm_format).safe_substitute(user_fields)
 
             try:
-                channel.send_message(text)
+                channel.send_message(text[:self.MAX_MESSAGE_SIZE])
             except Exception as e:
                 log.exception("(%s) Could not send message to channel %s (pylink_target=%s)", self.name, channel, pylink_target)
 
@@ -938,21 +939,27 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
             except queue.Empty:  # Then process them together when we run out of things in the queue
                 for channel, messages in joined_messages.items():
-                    # We want to send a message every time the virtual sender changes, or when we run out of messages
                     next_message = []
+                    length = 0
                     current_sender = None
+                    # We group messages here to avoid being throttled as often. In short, we want to send a message when:
+                    # 1) The virtual sender (for webhook purposes) changes
+                    # 2) We reach the message limit for one batch (2000 chars)
+                    # 3) We run out of messages at the end
                     while messages:
                         message = messages.popleft()
                         next_message.append(message.text)
+                        length += len(message.text)
 
-                        if message.sender != current_sender:
+                        if message.sender != current_sender or length >= self.MAX_MESSAGE_SIZE:
                             current_sender = message.sender
                             _send(current_sender, channel, message.pylink_target, next_message)
                             next_message.clear()
+                            length = 0
 
+                    # The last batch
                     if next_message:
                         _send(current_sender, channel, message.pylink_target, next_message)
-                        next_message.clear()
 
                 joined_messages.clear()
 
