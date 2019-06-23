@@ -109,8 +109,6 @@ class DiscordBotPlugin(Plugin):
         pylink_netobj.uplink = None
         pylink_netobj._guild_name = guild.name
 
-        pylink_netobj._burst_webhooks_agent()
-
         # Create a user for ourselves.
         member = guild.members[self.me.id]
         pylink_netobj.pseudoclient = pylink_netobj.users[self.me.id] = \
@@ -372,6 +370,13 @@ class DiscordBotPlugin(Plugin):
             # XXX: make the message configurable
             pylink_netobj.call_hooks([event.user.id, 'QUIT', {'text': 'User left the guild'}])
 
+    @Plugin.listen('WebhooksUpdate')
+    def on_webhooks_update(self, event):
+        if event.channel_id in self.protocol.webhooks:
+            log.info('(%s) Invalidating webhook %s due to webhook update on guild %s/channel %s',
+                      self.protocol.name, self.protocol.webhooks[event.channel_id], event.guild_id, event.channel_id)
+            del self.protocol.webhooks[event.channel_id]
+
     @Plugin.listen('ChannelCreate')
     @Plugin.listen('ChannelUpdate')
     def on_channel_update(self, event, *args, **kwargs):
@@ -416,6 +421,8 @@ class DiscordBotPlugin(Plugin):
         # If the bot is the one sending the message, don't do anything
         if message.author.id == self.me.id:
             return
+        elif message.webhook_id:  # Ignore messages from other webhooks for now...
+            return
 
         text = message.content
         if not message.guild:
@@ -450,11 +457,14 @@ class DiscordBotPlugin(Plugin):
                 if fail:
                     # Build a list of common server *names*
                     common_servers = [nwobj.name for gid, nwobj in self.protocol._children.items() if gid in common_guilds]
-                    message.channel.send_message(
-                        "To DM me, please prefix your messages with a guild name so I know where to "
-                        "process your messages: **<guild name> <command> <args>**\n"
-                        "Guilds we have in common: **%s**" % ', '.join(common_servers)
-                    )
+                    try:
+                        message.channel.send_message(
+                            "To DM me, please prefix your messages with a guild name so I know where to "
+                            "process your messages: **<guild name> <command> <args>**\n"
+                            "Guilds we have in common: **%s**" % ', '.join(common_servers)
+                        )
+                    except:
+                        log.exception("(%s) Could not send message to user %s", self.name, message.author)
                     return
                 else:
                     log.debug('discord: using guild %s/%s for DM from %s/%s', world.networkobjects[netname].sid, netname,
@@ -494,24 +504,7 @@ class DiscordBotPlugin(Plugin):
 
         pylink_netobj = self.protocol._children[subserver]
         author = message.author.id
-        if message.webhook_id:
-            if not pylink_netobj.webhooks_agent_uid or \
-                    (hasattr(pylink_netobj.channels[target], 'webhook') and
-                     message.webhook_id == pylink_netobj.channels[target].webhook.id):
-                return
 
-            author = pylink_netobj.webhooks_agent_uid
-            # Format the message to contain the webhook username
-            text = '<{}> {}'.format(message.author.username, text)
-
-            # Join the webhooks agent as needed to the channel.
-            if pylink_netobj.webhooks_agent_uid not in pylink_netobj.channels[target].users:
-                pylink_netobj.join(pylink_netobj.webhooks_agent_uid, target)
-                pylink_netobj.call_hooks([subserver, 'JOIN',
-                                          {'channel': target,
-                                           'users': [pylink_netobj.webhooks_agent_uid],
-                                           'modes': []
-                                          }])
         def _send(text):
             for line in text.split('\n'):  # Relay multiline messages as such
                 pylink_netobj.call_hooks([author, 'PRIVMSG', {'target': target, 'text': line}])
@@ -657,30 +650,6 @@ class DiscordServer(ClientbotBaseProtocol):
         """Returns whether the given UID is an internal PyLink client."""
         return uid == self.bot_plugin.me.id or super().is_internal_client(uid, **kwargs)
 
-    WEBHOOKS_AGENT_REALNAME = 'pylink-discord webhooks agent'
-    def _burst_webhooks_agent(self):
-        webhooks_agent = self.serverdata.get('webhooks_agent')
-        if not webhooks_agent:
-            log.debug('(%s) Not bursting webhooks agent; it is not enabled', self.name)
-            return
-
-        try:  # Try to treat it as a hostmask
-            webhooks_agent = utils.split_hostmask(webhooks_agent)
-        except ValueError:  # If that fails, treat it as just a nick
-            webhooks_agent = [webhooks_agent, 'webhooks', 'discord/webhooks-agent']
-        agent_uid = self.webhooks_agent_uid = self.uidgen.next_uid()
-
-        log.debug('(%s) Bursting webhooks agent as %s!%s@%s', self.name, *webhooks_agent)
-        self.users[agent_uid] = pylink_user = User(self, nick=webhooks_agent[0],
-                                                   ident=webhooks_agent[1], realname=self.WEBHOOKS_AGENT_REALNAME,
-                                                   host=webhooks_agent[2],
-                                                   ts=int(time.time()),
-                                                   uid=agent_uid,
-                                                   server=self.sid)
-        pylink_user.modes.update({('i', None), ('B', None)})
-
-        return agent_uid
-
     def message(self, source, target, text, notice=False):
         """Sends messages to the target."""
         if target in self.virtual_parent.client.state.users:
@@ -698,42 +667,18 @@ class DiscordServer(ClientbotBaseProtocol):
             log.error('(%s) Could not find message target for %s', self.name, target)
             return
 
-        message_data = {'target': discord_target, 'sender': source, 'text': text}
-        if self.pseudoclient and self.pseudoclient.uid == source:
-            self.virtual_parent.message_queue.put_nowait(message_data)
-            return
+        if text.startswith('\x01ACTION '):  # Mangle IRC CTCP actions
+            # TODO: possibly allow toggling between IRC style actions (* nick abcd) and Discord style (italicize the text)
+            text = '\x1d%s' % text[8:-1]
+        elif text.startswith('\x01'):
+            return  # Drop other CTCPs
 
-        # Try webhook only if the target is linked to a guild and servers::<discord>::guilds::<guild_id>::use_webhooks is true
-        if discord_target.guild and self.serverdata.get('use_webhooks', False):
-            try:
-                webhook = self._get_or_create_webhook(self.channels[target].discord_id)
-            except APIException:
-                log.debug('(%s) _get_or_create_webhook: could not get or create webhook for channel %s. Falling back to standard Clientbot behavior',
-                          self.name, target, exc_info=True)
-                webhook = None
+        sourceobj = None
+        if self.pseudoclient and self.pseudoclient.uid != source:
+            sourceobj = self.users.get(source)
 
-            if webhook:
-                try:
-                    remotenet, remoteuser = self.users[source].remote
-                    remoteirc = world.networkobjects[remotenet]
-                    message_data.update(self._get_user_webhook_data(remoteirc, remoteuser))
-                except (KeyError, ValueError):
-                    log.debug('(%s) Failure getting user info for user %s. Falling back to standard Clientbot behavior',
-                              self.name, source, exc_info=True)
-                else:
-                    if text.startswith('\x01ACTION'):  # Mangle IRC CTCP actions
-                        try:
-                            message_data['text'] = '* %s%s' % (remoteirc.get_friendly_name(remoteuser), text[len('\x01ACTION'):-1])
-                        except (KeyError, ValueError):
-                            log.exception('(%s) Failed to normalize IRC CTCP action: source=%s, text=%s', self.name, source, text)
-                    elif text.startswith('\x01'):
-                        return  # Drop other CTCPs
-
-                    message_data['webhook'] = webhook
-                    self.virtual_parent.message_queue.put_nowait(message_data)
-                    return
-
-        self.call_hooks([source, 'CLIENTBOT_MESSAGE', {'target': target, 'is_notice': notice, 'text': text}])
+        message_data = QueuedMessage(discord_target, target, text, sender=sourceobj, is_notice=notice)
+        self.virtual_parent.message_queue.put_nowait(message_data)
 
     def join(self, client, channel):
         """STUB: Joins a user to a channel."""
@@ -761,63 +706,22 @@ class DiscordServer(ClientbotBaseProtocol):
         """
         return [text]
 
-    def _get_or_create_webhook(self, channel_id):
-        webhook = getattr(self.channels[channel_id], 'webhook', None)
-        if webhook:
-            return webhook
+class QueuedMessage:
+    def __init__(self, channel, pylink_target, text, sender=None, is_notice=False):
+        """
+        Creates a queued message for Discord.
 
-        webhook_user = self.serverdata.get('webhook_name') or 'PyLinkRelay'
-        webhook_user += '-%d' % channel_id
-        for webhook in self.virtual_parent.client.api.channels_webhooks_list(channel_id):
-            if webhook.name == webhook_user:
-                self.channels[channel_id].webhook = webhook
-                return webhook
-        else:
-            log.info('(%s) Creating new web-hook on channel %s/%s', self.name, channel_id, self.get_friendly_name(channel_id))
-            self.channels[channel_id].webhook = webhook = self.virtual_parent.client.api.channels_webhooks_create(channel_id, name=webhook_user)
-            return webhook
-
-    def _get_user_webhook_data(self, netobj, uid):
-        user = netobj.users[uid]
-
-        fields = user.get_fields()
-        fields['netname'] = netobj.get_full_network_name()
-        fields['nettag'] = netobj.name
-
-        user_format = self.serverdata.get('webhook_user_format', "$nick @ IRC/$netname")
-        tmpl = string.Template(user_format)
-        data = {
-            'username': tmpl.safe_substitute(fields)
-        }
-
-        default_avatar_url = self.serverdata.get('default_avatar_url')
-
-        # XXX: we'll have a more rigorous matching system later on
-        if user.services_account in self.serverdata.get('avatars', {}):
-            avatar_url = self.serverdata['avatars'][user.services_account]
-            p = urllib.parse.urlparse(avatar_url)
-            log.debug('(%s) Got raw avatar URL %s for UID %s', self.name, avatar_url, uid)
-
-            if p.scheme == 'gravatar' and libgravatar:  # gravatar:hello@example.com
-                try:
-                    g = libgravatar.Gravatar(p.path)
-                    log.debug('(%s) Using Gravatar email %s for UID %s', self.name, p.path, uid)
-                    data['avatar_url'] = g.get_image(use_ssl=True)
-                except:
-                    log.exception('Failed to obtain Gravatar image for user %s/%s', uid, p.path)
-
-            elif p.scheme in ('http', 'https'):  # a direct image link
-                data['avatar_url'] = avatar_url
-
-            else:
-                log.warning('(%s) Unknown avatar URI %s for UID %s', self.name, avatar_url, uid)
-        elif default_avatar_url:
-            log.debug('(%s) Avatar not defined for UID %s; using default avatar %s', self.name, uid, default_avatar_url)
-            data['avatar_url'] = default_avatar_url
-        else:
-            log.debug('(%s) Avatar not defined for UID %s; using default webhook avatar', self.name, uid)
-
-        return data
+        target: the target Discord channel (disco.types.Channel)
+        pylink_target: the original PyLink message target (int, Discord UID or channel ID)
+        text: the message text (str)
+        sender: optionally, a PyLink User object corresponding to the sender
+        is_notice: whether this message corresponds to an IRC notice (bool)
+        """
+        self.channel = channel
+        self.pylink_target = pylink_target
+        self.text = text
+        self.sender = sender
+        self.is_notice = is_notice
 
 class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
     S2S_BUFSIZE = 0
@@ -827,15 +731,19 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
         if 'token' not in self.serverdata:
             raise ProtocolError("No API token defined under server settings")
-        self.client_config = ClientConfig({'token': self.serverdata['token']})
-        self.client = Client(self.client_config)
-        self.bot_config = BotConfig()
-        self.bot = Bot(self.client, self.bot_config)
-        self.bot_plugin = DiscordBotPlugin(self, self.bot, self.bot_config)
+
+        client_config = ClientConfig({'token': self.serverdata['token']})
+        self.client = Client(client_config)
+
+        bot_config = BotConfig()
+        self.bot = Bot(self.client, bot_config)
+
+        self.bot_plugin = DiscordBotPlugin(self, self.bot, bot_config)
         self.bot.add_plugin(self.bot_plugin)
-        #setup_logging(level='DEBUG')
+
         self._children = {}
         self.message_queue = queue.Queue()
+        self.webhooks = {}
 
     @staticmethod
     def is_nick(s, nicklen=None):
@@ -889,51 +797,164 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         """
         return [text]
 
+    def _get_webhook(self, channel):
+        """
+        Returns the webhook saved for the given channel, or try to create one if none exists.
+        """
+        if channel.id in self.webhooks:  # We've already saved this webhook
+            wh = self.webhooks[channel.id]
+            log.debug('discord: Using saved webhook %s (%s) for channel %s', wh.id, wh.name, channel)
+            return wh
+
+        # Generate a webhook name based off a configurable prefix and the channel ID
+        webhook_name = '%s-%d' % (self.serverdata.get('webhook_name') or 'PyLinkRelay', channel.id)
+
+        for wh in channel.get_webhooks():
+            if wh.name == webhook_name:  # This hook matches our name
+                self.webhooks[channel.id] = wh
+                log.info('discord: Using existing webhook %s (%s) for channel %s', wh.id, webhook_name, channel)
+                return wh
+
+        # If we didn't find any webhooks, create a new one
+        wh = self.webhooks[channel.id] = channel.create_webhook(name=webhook_name)
+        log.info('discord: Created new webhook %s (%s) for channel %s', wh.id, wh.name, channel)
+        return wh
+
+    def _get_webhook_fields(self, user):
+        """
+        Returns a dict of Relay substitution fields for the given User object.
+        This attempts to find the original user via Relay if the .remote metadata field is set.
+
+        The output includes all keys provided in User.get_fields(), plus the following:
+            netname: The full network name of the network 'user' belongs to
+            nettag: The short network tag of the network 'user' belongs to
+            avatar: The URL to the user's avatar (str), or None if no avatar is specified
+        """
+        # Try to lookup the remote user data via relay metadata
+        if hasattr(user, 'remote'):
+            remotenet, remoteuid = user.remote
+            try:
+                netobj = world.networkobjects[remotenet]
+                user = netobj.users[remoteuid]
+            except LookupError:
+                netobj = user._irc
+
+        fields = user.get_fields()
+        fields['netname'] = netobj.get_full_network_name()
+        fields['nettag'] = netobj.name
+
+        default_avatar_url = self.serverdata.get('default_avatar_url')
+        avatar = None
+        # XXX: we'll have a more rigorous matching system later on
+        if user.services_account in self.serverdata.get('avatars', {}):
+            avatar_url = self.serverdata['avatars'][user.services_account]
+            p = urllib.parse.urlparse(avatar_url)
+            log.debug('(%s) Got raw avatar URL %s for user %s', self.name, avatar_url, user)
+
+            if p.scheme == 'gravatar' and libgravatar:  # gravatar:hello@example.com
+                try:
+                    g = libgravatar.Gravatar(p.path)
+                    log.debug('(%s) Using Gravatar email %s for user %s', self.name, p.path, user)
+                    avatar = g.get_image(use_ssl=True)
+                except:
+                    log.exception('Failed to obtain Gravatar image for user %s/%s', user, p.path)
+
+            elif p.scheme in ('http', 'https'):  # a direct image link
+                avatar = avatar_url
+
+            else:
+                log.warning('(%s) Unknown avatar URI %s for user %s', self.name, avatar_url, user)
+        elif default_avatar_url:
+            log.debug('(%s) Avatar not defined for user %s; using default avatar %s', self.name, user, default_avatar_url)
+            avatar = default_avatar_url
+        else:
+            log.debug('(%s) Avatar not defined for user %s; using default webhook avatar', self.name, user)
+        fields['avatar'] = avatar
+        return fields
+
     def _message_builder(self):
-        current_channel_senders = {}
-        joined_messages = collections.defaultdict(dict)
+        """
+        Discord message queue handler. Also supports virtual users via webhooks.
+        """
+        def _send(sender, channel, pylink_target, message_parts):
+            """
+            Wrapper to send a joined message.
+            """
+            text = '\n'.join(message_parts)
+
+            # Handle the case when the sender is not the PyLink client (sender != None)
+            # For channels, use either virtual webhook users or CLIENTBOT_MESSAGE forwarding (relay_clientbot).
+            if sender:
+                user_fields = self._get_webhook_fields(sender)
+
+                if channel.guild:  # This message belongs to a channel
+                    netobj = self._children[channel.guild.id]
+                    if netobj.serverdata.get('use_webhooks'):
+                        user_format = self.serverdata.get('webhook_user_format', "$nick @ $netname")
+                        tmpl = string.Template(user_format)
+                        webhook_fake_username = tmpl.safe_substitute(self._get_webhook_fields(sender))
+
+                        try:
+                            webhook = self._get_webhook(channel)
+                            webhook.execute(content=text, username=webhook_fake_username, avatar_url=user_fields['avatar'])
+                        except APIException as e:
+                            log.exception("(%s) Failed to send webhook message to channel %s", self.name, channel)
+                            if e.status_code == 10015 and channel.id in self.webhooks:
+                                log.info("(%s) Invalidating webhook %s for channel %s due to Unknown Webhook error (10015)",
+                                         self.name, self.webhooks[channel.id], channel)
+                                del self.webhooks[channel.id]
+
+                        except:
+                            log.exception("(%s) Failed to send webhook message to channel %s", self.name, channel)
+                        else:
+                            return
+
+                    for line in message_parts:
+                        netobj.call_hooks([sender.uid, 'CLIENTBOT_MESSAGE', {'target': pylink_target, 'text': line}])
+                    return
+                else:
+                    # This is a forwarded PM - prefix the message with its sender info.
+                    pm_format = self.serverdata.get('pm_format', "Message from $nick @ $netname: $text")
+                    user_fields['text'] = text
+                    text = string.Template(pm_format).safe_substitute(user_fields)
+
+            try:
+                channel.send_message(text)
+            except Exception as e:
+                log.exception("(%s) Could not send message to channel %s (pylink_target=%s)", self.name, channel, pylink_target)
+
+        joined_messages = collections.defaultdict(collections.deque)
         while not self._aborted.is_set():
             try:
+                # message is an instance of QueuedMessage (defined in this file)
                 message = self.message_queue.get(timeout=BATCH_DELAY)
-                message_text = message.pop('text', '')
-
                 try:
-                    message_text = I2DFormatter().format(message_text)
+                    message.text = I2DFormatter().format(message.text)
                 except:
-                    log.exception('(%s) Error translating from IRC to Discord: %s', self.name, message_text)
-                channel = message.pop('target')
-                current_sender = current_channel_senders.get(channel, None)
+                    log.exception('(%s) Error translating from IRC to Discord: %s', self.name, message.text)
 
-                if current_sender != message['sender']:
-                     self.flush(channel, joined_messages[channel])
-                     joined_messages[channel] = message
+                # First, buffer messages by channel
+                joined_messages[message.channel].append(message)
 
-                current_channel_senders[channel] = message['sender']
+            except queue.Empty:  # Then process them together when we run out of things in the queue
+                for channel, messages in joined_messages.items():
+                    # We want to send a message every time the virtual sender changes, or when we run out of messages
+                    next_message = []
+                    current_sender = None
+                    while messages:
+                        message = messages.popleft()
+                        next_message.append(message.text)
 
-                joined_message = joined_messages[channel].get('text', '')
-                joined_messages[channel]['text'] = joined_message + "\n{}".format(message_text)
-            except queue.Empty:
-                for channel, message_info in joined_messages.items():
-                    self.flush(channel, message_info)
+                        if message.sender != current_sender:
+                            current_sender = message.sender
+                            _send(current_sender, channel, message.pylink_target, next_message)
+                            next_message.clear()
+
+                    if next_message:
+                        _send(current_sender, channel, message.pylink_target, next_message)
+                        next_message.clear()
+
                 joined_messages.clear()
-                current_channel_senders.clear()
-
-    def flush(self, channel, message_info):
-        message_text = message_info.pop('text', '').strip()
-        if message_text:
-            if message_info.get('username'):
-                log.debug('(%s) Sending webhook to channel %s with user %s and avatar %s', self.name, channel,
-                          message_info.get('username'), message_info.get('avatar_url'))
-                try:
-                    message_info['webhook'].execute(
-                        content=message_text,
-                        username=message_info['username'],
-                        avatar_url=message_info.get('avatar_url'),
-                    )
-                    return
-                except:
-                    log.exception('(%s) Error sending webhook message:', self.name)
-            channel.send_message(message_text)
 
     def _create_child(self, server_id, guild_name):
         """
