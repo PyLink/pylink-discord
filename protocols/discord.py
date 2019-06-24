@@ -151,8 +151,10 @@ class DiscordBotPlugin(Plugin):
         try:
             pylink_channel = pylink_netobj.channels[channel.id]
             pylink_channel.name = str(channel)
+            log.debug("(%s) Retrieved channel %s for channel ID %s", self.name, pylink_channel, channel.id)
         except KeyError:
             pylink_channel = pylink_netobj.channels[channel.id] = Channel(self, name=str(channel))
+            log.debug("(%s) Created new channel %s for channel ID %s", self.name, pylink_channel, channel.id)
 
         pylink_channel.discord_id = channel.id
         pylink_channel.discord_channel = channel
@@ -219,23 +221,27 @@ class DiscordBotPlugin(Plugin):
             if self.protocol.serverdata.get('show_owner_status', True) and uid == guild.owner_id:
                 modes.append(('+q', uid))
 
-        if modes:
-            pylink_netobj.apply_modes(channel.id, modes)
-            log.debug('(%s) Relaying permission changes on %s/%s as modes: %s', self.protocol.name, member.name,
-                     channel, pylink_netobj.join_modes(modes))
-            if relay_modes:
-                pylink_netobj.call_hooks([guild.id, 'MODE', {'target': channel.id, 'modes': modes}])
+        # Note: once we've gotten here, it is possible that the channel was removed because the bot
+        # no longer has access to it
+        if channel.id in pylink_netobj.channels:
+            if users_joined:
+                pylink_netobj.call_hooks([
+                    guild.id,
+                    'JOIN',
+                    {
+                        'channel': channel.id,
+                        'users': users_joined,
+                        'modes': []
+                    }
+                ])
 
-        if users_joined:
-            pylink_netobj.call_hooks([
-                guild.id,
-                'JOIN',
-                {
-                    'channel': channel.id,
-                    'users': users_joined,
-                    'modes': []
-                }
-            ])
+            if modes:
+                pylink_netobj.apply_modes(channel.id, modes)
+                log.debug('(%s) Relaying permission changes on %s/%s as modes: %s', self.protocol.name, member.name,
+                          channel, pylink_netobj.join_modes(modes))
+                if relay_modes:
+                    pylink_netobj.call_hooks([guild.id, 'MODE', {'target': channel.id, 'modes': modes}])
+
 
     def _burst_new_client(self, guild, member, pylink_netobj):
         """Bursts the given member as a new PyLink client."""
