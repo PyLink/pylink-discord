@@ -570,7 +570,10 @@ class DiscordServer(ClientbotBaseProtocol):
     def __init__(self, _, parent, server_id, guild_name):
         self.sid = server_id  # Allow serverdata to work first
         self.virtual_parent = parent
+
+        # Convenience variables
         self.bot_plugin = parent.bot_plugin
+        self.guild = self.bot_plugin.client.state.guilds[server_id]
 
         # Try to find a predefined server name; if that fails, use the server id.
         # We don't use the guild name as the PyLink network name because they can be
@@ -704,6 +707,17 @@ class DiscordServer(ClientbotBaseProtocol):
         log.debug('(%s) join: faking JOIN of client %s/%s to %s', self.name, client,
                   self.get_friendly_name(client), channel)
         self.call_hooks([client, 'CLIENTBOT_JOIN', {'channel': channel}])
+
+    def nick(self, source, newnick):
+        """
+        Changes the nick of the main PyLink bot or a virtual client.
+        """
+        if self.pseudoclient.uid == source:
+            my_member = self.guild.get_member(self.bot_plugin.me)
+            my_member.set_nickname(newnick)
+        elif self.is_internal_client(source):
+            super().nick(source, newnick)
+        # Note: Forcing nick changes for others is not yet implemented in the PyLink API.
 
     def send(self, data, queue=True):
         log.debug('(%s) Ignoring attempt to send raw data via child network object', self.name)
