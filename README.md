@@ -1,6 +1,6 @@
 # pylink-discord
 
-An alpha module linking [PyLink](https://github.com/jlu5/PyLink) to Discord!
+**pylink-discord** provides Discord integration for [PyLink](https://github.com/jlu5/PyLink). Using this module, you can transparently relay conversations between IRC and Discord (using virtual clients on IRC & webhook users on Discord), as well as between multiple Discord guilds.
 
 ## Requirements
 - CPython 3.5 or later
@@ -76,20 +76,30 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
 
 6) Start PyLink using the `pylink-discord` wrapper in the repository root. This is **important** as this wrapper applies gevent patching, which is required by the underlying disco library.
 
+
+## Permissions
+
+pylink-discord needs the following permissions to work:
+
+- **Read Messages** and **Send Messages** on all channels you plan to use Relay on.
+- **Manage Webhooks** if you intend to use webhooks mode. pylink-discord creates and manages its own set of webhooks (one per channel) to simplify configuration.
+- *Optional:* **Change Nickname** - allows you to modify the bot's nick via the `nick` command in PyLink.
+
 ## Usage
 
 Channels, guilds, and users are all represented as IDs in Discord and thus in this protocol module too.
-This affects plugins: e.g. in Relay you must use command forms like `link masternet #channel 12345678`, where 12345678 is your Discord channel ID.
+This affects plugins: e.g. in Relay you must use commands like `link masternet #channel 12345678`, where 12345678 is your Discord channel ID.
 
 Other than that, Relay should work on Discord much like it does on IRC Clientbot. On full server links, Discord users are bursted as virtual IRC users.
 
 Private channels are supported too - just add access so that the bot can read it!
 
+
 ## Implementation Notes & Limitations
 
 - Each Discord guild that the bot is in is represented as a separate PyLink network. This means that **per-guild nicks work**, and are tracked across nick changes!
 - Discord does not have a rigid concept of a channel's user list. So, we instead check permissions on each guild member, and consider someone to be "in" a channel if they have the Read Messages permission there.
-- Starting in PyLink 2.1-dev, Unicode nicks are translated to IRC ASCII by Relay when not supported by the receiving IRCd. Installing [unidecode](https://github.com/avian2/unidecode) will allow PyLink Relay to do a best effort transliteration of Unicode characters to ASCII, instead of replacing all unrecognized characters with `-`.
+- Starting in PyLink 2.1, Unicode nicks are translated to IRC ASCII by Relay when not supported by the receiving IRCd. Installing [unidecode](https://github.com/avian2/unidecode) will allow PyLink Relay to do a best effort transliteration of Unicode characters to ASCII, instead of replacing all unrecognized characters with `-`.
 - Kicks, modes, and most forms of IRC moderation are **not supported**, as it is way out of our scope to bidirectionally sync IRC modes (which are complicated!) and Discord permissions (which are also complicated!).
     - Attempts to kick from IRC are bounced because there is no equivalent concept on Discord (Discord kicks are by guild).
 - Permissions from Discord channels are synced to IRC (and hopefully updated live through permission and role changes):
