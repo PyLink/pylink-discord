@@ -915,7 +915,10 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
                 if channel.guild:  # This message belongs to a channel
                     netobj = self._children[channel.guild.id]
-                    if netobj.serverdata.get('use_webhooks'):
+
+                    # Note: skip webhook sending for messages that contain only spaces, as that fails with
+                    # 50006 "Cannot send an empty message" errors
+                    if netobj.serverdata.get('use_webhooks') and text.strip():
                         user_format = netobj.serverdata.get('webhook_user_format', "$nick @ $netname")
                         tmpl = string.Template(user_format)
                         webhook_fake_username = tmpl.safe_substitute(self._get_webhook_fields(sender))
