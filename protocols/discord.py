@@ -520,6 +520,21 @@ class DiscordBotPlugin(Plugin):
         for attachment in message.attachments.values():
             _send(attachment.url)
 
+    @Plugin.listen('MessageUpdate')
+    def on_message_update(self, event):
+        message = event.message
+        if message.guild:
+            # Optionally, allow marking edited channel messages as such.
+            subserver = message.guild.id
+            pylink_netobj = self.protocol._children[subserver]
+            editmsg_format = pylink_netobj.serverdata.get('editmsg_format')
+            if editmsg_format:
+                try:
+                    message.content = editmsg_format % message.content
+                except TypeError:
+                    log.warning('(%s) Invalid editmsg_format format, it should contain a %%s', pylink_netobj.name)
+        return self.on_message(event)
+
     def _update_user_status(self, guild, uid, presence):
         """Handles a Discord presence update."""
         pylink_netobj = self.protocol._children.get(guild.id)

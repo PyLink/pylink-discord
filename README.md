@@ -57,6 +57,11 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         # apply, plus $text (the contents of the message).
         pm_format: "Message from $nick @ $netname: $text"
 
+        # Here you can set how edited channel messages are formatted. Edited messages are re-broadcasted
+        # as a separate message, in terms of Relay and PyLink commands. If this is empty, edited messages will
+        # be sent without any additional changes.
+        #editmsg_format: "\x02Edit:\x02 %s"
+
         # You can associate IRC services accounts with preferred avatar URLs. Currently this is
         # quite limited and requires hardcoding things in the config; eventually there will be
         # a self-service process to do this.
