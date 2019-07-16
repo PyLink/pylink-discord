@@ -385,7 +385,7 @@ class DiscordBotPlugin(Plugin):
 
     @Plugin.listen('ChannelCreate')
     @Plugin.listen('ChannelUpdate')
-    def on_channel_update(self, event, *args, **kwargs):
+    def on_channel_update(self, event):
         # XXX: disco should be doing this for us?!
         if event.overwrites:
             log.debug('discord: resetting channel overrides on %s/%s: %s', event.channel.id, event.channel, event.overwrites)
@@ -419,7 +419,7 @@ class DiscordBotPlugin(Plugin):
         return common
 
     @Plugin.listen('MessageCreate')
-    def on_message(self, event: events.MessageCreate, *args, **kwargs):
+    def on_message(self, event: events.MessageCreate):
         message = event.message
         subserver = None
         target = None
@@ -560,7 +560,7 @@ class DiscordBotPlugin(Plugin):
             pylink_netobj.call_hooks([uid, 'AWAY', {'text': awaymsg, 'now_invisible': now_invisible}])
 
     @Plugin.listen('PresenceUpdate')
-    def on_presence_update(self, event, *args, **kwargs):
+    def on_presence_update(self, event):
         self._update_user_status(event.guild, event.presence.user.id, event.presence)
 
 
