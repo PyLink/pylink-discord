@@ -523,6 +523,12 @@ class DiscordBotPlugin(Plugin):
     @Plugin.listen('MessageUpdate')
     def on_message_update(self, event):
         message = event.message
+        if not message.content:
+            # Message updates do not necessarily contain all fields, per
+            # https://discordapp.com/developers/docs/topics/gateway#message-update
+            log.debug('discord: Ignoring message update for %s since the content has not been changed', message)
+            return
+
         if message.guild:
             # Optionally, allow marking edited channel messages as such.
             subserver = message.guild.id
