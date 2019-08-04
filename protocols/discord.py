@@ -937,6 +937,10 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                 if channel.guild:  # This message belongs to a channel
                     netobj = self._children[channel.guild.id]
 
+                    if not netobj.serverdata.get('allow_mention_everyone', False):
+                        text = text.replace('@here', '@ here')
+                        text = text.replace('@everyone', '@ everyone')
+
                     # Note: skip webhook sending for messages that contain only spaces, as that fails with
                     # 50006 "Cannot send an empty message" errors
                     if netobj.serverdata.get('use_webhooks') and text.strip():

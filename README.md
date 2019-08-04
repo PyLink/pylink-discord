@@ -62,6 +62,11 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         # be sent without any additional changes.
         #editmsg_format: "\x02Edit:\x02 %s"
 
+        # Determines whether the bot will send @here and @everyone when relaying messages. Generally this is not
+        # particularly useful because it allows people to spam these triggers fairly easily.
+        # This defaults to false if not set.
+        #allow_mention_everyone: false
+
         # You can associate IRC services accounts with preferred avatar URLs. Currently this is
         # quite limited and requires hardcoding things in the config; eventually there will be
         # a self-service process to do this.
