@@ -937,10 +937,6 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                 if channel.guild:  # This message belongs to a channel
                     netobj = self._children[channel.guild.id]
 
-                    if not netobj.serverdata.get('allow_mention_everyone', False):
-                        text = text.replace('@here', '@ here')
-                        text = text.replace('@everyone', '@ everyone')
-
                     # Note: skip webhook sending for messages that contain only spaces, as that fails with
                     # 50006 "Cannot send an empty message" errors
                     if netobj.serverdata.get('use_webhooks') and text.strip():
@@ -998,6 +994,10 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                     message.text = I2DFormatter().format(message.text)
                 except:
                     log.exception('(%s) Error translating from IRC to Discord: %s', self.name, message.text)
+
+                if not self.serverdata.get('allow_mention_everyone', False):
+                    message.text = message.text.replace('@here', '@ here')
+                    message.text = message.text.replace('@everyone', '@ everyone')
 
                 # First, buffer messages by channel
                 joined_messages[message.channel].append(message)
