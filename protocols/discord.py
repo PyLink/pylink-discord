@@ -607,7 +607,7 @@ class DiscordServer(ClientbotBaseProtocol):
         super().__init__(name)
         self.sidgen = PUIDGenerator('DiscordInternal')
         self.uidgen = PUIDGenerator('PUID')
-        self.servers[self.sid] = Server(self, None, server_id, internal=False, desc=guild_name)
+        self.servers[self.sid] = Server(self, None, str(server_id), internal=False, desc=guild_name)
 
         self.join_offline_users = self.serverdata.get('join_offline_users', True)
         self.protocol_caps |= {'freeform-nicks', 'virtual-server'}
