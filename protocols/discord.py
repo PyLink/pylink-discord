@@ -188,18 +188,22 @@ class DiscordBotPlugin(Plugin):
                             member.user.presence.status not in (DiscordStatus.OFFLINE, DiscordStatus.INVISIBLE)):
                         users_joined.append(uid)
 
-                for irc_mode, discord_permission in self.irc_discord_perm_mapping.items():
+                # Map Discord role IDs to IRC modes
+                # e.g. 1234567890: 'op'
+                #      2345678901: 'voice'
+                for role_id, irc_mode in pylink_netobj.serverdata.get('role_mode_map', {}).items():
+                    user_has_role = role_id in member.roles
+                    modechar = pylink_netobj.cmodes.get(irc_mode)
+                    if not modechar or irc_mode not in pylink_channel.prefixmodes:  # Unknown mode name
+                        continue
                     prefixlist = pylink_channel.prefixmodes[irc_mode] # channel.prefixmodes['op'] etc.
-                    # If the user now has the permission but not the associated mode, add it to the mode list
-                    has_op_perm = channel_permissions.can(discord_permission)
-                    if has_op_perm:
-                        modes.append(('+%s' % pylink_netobj.cmodes[irc_mode], uid))
-                        if irc_mode == 'op':
-                            # Stop adding lesser modes once we find an op; this reflects IRC services
-                            # which tend to set +ao, +o, ... instead of +ohv, +aohv
-                            break
-                    elif (not has_op_perm) and uid in prefixlist:
-                        modes.append(('-%s' % pylink_netobj.cmodes[irc_mode], uid))
+
+                    # New role added
+                    if user_has_role and uid not in prefixlist:
+                        modes.append(('+%s' % modechar, uid))
+                    # Matching role removed (ignore the owner though since they may have +q)
+                    elif not user_has_role and uid in prefixlist and uid != guild.owner_id:
+                        modes.append(('-%s' % modechar, uid))
 
             elif uid in pylink_channel.users and not has_perm:
                 log.debug('discord: parting member %s from %s/%s', member, channel.id, channel)

@@ -41,6 +41,13 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
                 # to online ones. Note that if this is disabled, PMs cannot be sent to offline Discord users
                 # Changes to this setting require a reconnect to apply. This defaults to true if not set.
                 join_offline_users: true
+
+                # Optional: map a list of roles to IRC modes. You can find role IDs by enabling Developer Mode
+                # and right clicking a role in the user info pane or Roles configuration page.
+                role_mode_map:
+                    123456789012345678: op
+                    001122334455667788: voice
+
             # another example
             123456789000000000:
                 name: chatutopia
@@ -112,11 +119,6 @@ Private channels are supported too - just add access so that the bot can read it
 - Starting in PyLink 2.1, Unicode nicks are translated to IRC ASCII by Relay when not supported by the receiving IRCd. Installing [unidecode](https://github.com/avian2/unidecode) will allow PyLink Relay to do a best effort transliteration of Unicode characters to ASCII, instead of replacing all unrecognized characters with `-`.
 - Kicks, modes, and most forms of IRC moderation are **not supported**, as it is way out of our scope to bidirectionally sync IRC modes (which are complicated!) and Discord permissions (which are also complicated!).
     - Attempts to kick from IRC are bounced because there is no equivalent concept on Discord (Discord kicks are by guild).
-- Permissions from Discord channels are synced to IRC (and hopefully updated live through permission and role changes):
-    - IRC admin (+a) corresponds to the Administrator permission
-    - IRC op (+o) corresponds to the Manage Messages permission
-    - IRC halfop (+h) corresponds to Kick Members
-    - IRC voice (+v) corresponds to Send Messages
 - Basic formatting works mostly OK (bold, underline, italic).
 - Attachments sent to Discord are relayed as a link to IRC.
 
