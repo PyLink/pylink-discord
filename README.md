@@ -20,26 +20,35 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
 
 ```yaml
 
+servers:
+    # Add this after under all your other servers:
+
     discord-ctrl:
         token: "your.discord.token.keep.this.private!"
         netname: "Discord"
         protocol: discord
 
-        # This config block uses guild IDs, so that settings and (PyLink) network names are consistent
-        # across guild renames. You can easily find IDs by turning on Developer Mode in Discord:
+        # This protocol module uses IDs for configuring servers, channels, and the like.
+        # You can easily find IDs by turning on Developer Mode in Discord:
         # https://support.discordapp.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-
 
-        # You SHOULD set a name for every guild your bot is in, or the protocol module will fall back
-        # to guild IDs as PyLink network names (which are not pretty!)
+        # Define a list of guilds (servers) and their settings.
         guilds:
-            # overdrive networks (our magical server!)
-            497939890063802369:
-                name: ovddsc
+            # Set this to the ID of your server - you can find it by enabling Developer Mode and right clicking
+            # your server's icon in the server list
+            101010101010101010:
+                # The name to use for this guild in PyLink. This should be different from any other networks you've specified
+                # in your config. If you're only relaying to one guild, setting this to "discord" is a pretty safe bet.
+                name: yournet-dsc
+
+                # Toggles username spoofing via webhooks for a more transparent relay experience. This requires the bot to have
+                # the Manage Webhooks permission, and defaults to false if not set.
                 use_webhooks: false
+
                 # If disabled, users that are marked as "Invisible" or "Offline" will not be joined to
-                # linked channels until they come online. Useful if you have many offline users compared
+                # linked channels until they come online. This can be useful if you have many offline users compared
                 # to online ones. Note that if this is disabled, PMs cannot be sent to offline Discord users
-                # Changes to this setting require a reconnect to apply. This defaults to true if not set.
+                # Changes to this setting require a restart to apply. This defaults to true if not set.
                 join_offline_users: true
 
                 # Optional: map a list of roles to IRC modes. You can find role IDs by enabling Developer Mode
@@ -48,7 +57,7 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
                     123456789012345678: op
                     001122334455667788: voice
 
-            # another example
+            # Another example
             123456789000000000:
                 name: chatutopia
                 use_webhooks: true
@@ -69,13 +78,12 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         # be sent without any additional changes.
         #editmsg_format: "\x02Edit:\x02 %s"
 
-        # Determines whether the bot will send @here and @everyone when relaying messages. Generally this is not
-        # particularly useful because it allows people to spam these triggers fairly easily.
-        # This defaults to false if not set.
+        # Determines whether the bot will send @here and @everyone when relaying messages. This is disabled by
+        # default to prevent people from spamming these triggers fairly easily.
         #allow_mention_everyone: false
 
         # You can associate IRC services accounts with preferred avatar URLs. Currently this is
-        # quite limited and requires hardcoding things in the config; eventually there will be
+        # quite limited and requires hardcoding things in the config; eventually there may be
         # a self-service process to do this.
         #
         # Gravatar emails in the form "gravatar:some@email.com" are supported if libgravatar is installed.
@@ -87,7 +95,7 @@ You can also install these dependencies via pip (for Python 3) using: `pip3 inst
         # For users without an avatar set, you can use a default avatar URL (http or https).
         # If this is unset, the bot will just use the default webhook icon (which you can customize
         # per channel if desired).
-        default_avatar_url: "https://ircnet.overdrivenetworks.com/img/relaypic.png"
+        default_avatar_url: "https://overdrivenetworks.com/relaypic.png"
 
 ```
 
