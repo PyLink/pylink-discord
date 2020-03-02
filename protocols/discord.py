@@ -1,7 +1,7 @@
 # Discord module for PyLink
 #
 # Copyright (C) 2018-2019 Ian Carpenter <icarpenter@cultnet.net>
-# Copyright (C) 2018-2019 James Lu <james@overdrivenetworks.com>
+# Copyright (C) 2018-2020 James Lu <james@overdrivenetworks.com>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,7 +27,8 @@ import urllib.parse
 import socket, gevent.socket
 
 if socket.socket is not gevent.socket.socket:
-    raise ImportError("gevent patching must be enabled for protocols/discord to work!")
+    raise ImportError("gevent patching must be enabled for protocols/discord to work. "
+                      "Make sure you are starting with the pylink-discord launcher.")
 
 from disco.api.http import APIException
 from disco.bot import Bot, BotConfig
@@ -44,7 +45,12 @@ from holster.emitter import Priority
 from pylinkirc import structures, utils
 from pylinkirc.classes import *
 from pylinkirc.log import log
-from pylinkirc.protocols.clientbot import ClientbotBaseProtocol
+import pylinkirc
+try:
+    from pylinkirc.protocols.clientbot import ClientbotBaseProtocol
+except ImportError as e:
+    raise ImportError("Could not load ClientbotBaseProtocol. Make sure you are running "
+                      "PyLink 3.0 or higher (current version: %s)" % pylinkirc.__version__) from e
 
 try:
     import libgravatar
