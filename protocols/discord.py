@@ -98,10 +98,6 @@ class DiscordBotPlugin(Plugin):
     @Plugin.listen('Ready')
     def on_ready(self, event, *args, **kwargs):
         self.me = event.user
-        log.info('(%s) got ready event, starting messaging thread', self.protocol.name)
-        self._message_thread = threading.Thread(name="Messaging thread for %s" % self.name,
-                                                target=self.protocol._message_builder, daemon=True)
-        self._message_thread.start()
         self.protocol.connected.set()
 
     def _burst_guild(self, guild):
@@ -806,6 +802,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
         self._children = {}
         self.message_queue = queue.Queue()
         self.webhooks = {}
+        self._message_thread = None
 
     @staticmethod
     def is_nick(s, nicklen=None):
@@ -1065,6 +1062,9 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
 
     def connect(self):
         self._aborted.clear()
+        self._message_thread = threading.Thread(name="Messaging thread for %s" % self.name,
+                                                target=self._message_builder, daemon=True)
+        self._message_thread.start()
         self.client.run()
 
     def disconnect(self):
