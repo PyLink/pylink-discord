@@ -58,8 +58,6 @@ except ImportError:
     libgravatar = None
     log.info('discord: libgravatar not installed - avatar support will be disabled.')
 
-from ._discord_formatter import I2DFormatter, D2IFormatter
-
 BATCH_DELAY = 0.3  # TODO: make this configurable
 
 class DiscordChannelState(structures.CaseInsensitiveDict):
@@ -513,11 +511,6 @@ class DiscordBotPlugin(Plugin):
 
         if not subserver:
             return
-
-        try:
-            text = D2IFormatter().format(text)
-        except:
-            log.exception('(%s) Error translating from Discord to IRC: %s', self.name, text)
 
         pylink_netobj = self.protocol._children[subserver]
         author = message.author.id
@@ -1003,10 +996,7 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
             try:
                 # message is an instance of QueuedMessage (defined in this file)
                 message = self.message_queue.get(timeout=BATCH_DELAY)
-                try:
-                    message.text = I2DFormatter().format(message.text)
-                except:
-                    log.exception('(%s) Error translating from IRC to Discord: %s', self.name, message.text)
+                message.text = utils.strip_irc_formatting(message.text)
 
                 if not self.serverdata.get('allow_mention_everyone', False):
                     message.text = message.text.replace('@here', '@ here')
@@ -1040,6 +1030,8 @@ class PyLinkDiscordProtocol(PyLinkNetworkCoreWithUtils):
                         _send(current_sender, channel, message.pylink_target, next_message)
 
                 joined_messages.clear()
+            except Exception:
+                log.exception("Exception in message queueing thread:")
 
     def _create_child(self, server_id, guild_name):
         """

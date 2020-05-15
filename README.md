@@ -127,7 +127,6 @@ Private channels are supported too - just add access so that the bot can read it
 - Starting in PyLink 2.1, Unicode nicks are translated to IRC ASCII by Relay when not supported by the receiving IRCd. Installing [unidecode](https://github.com/avian2/unidecode) will allow PyLink Relay to do a best effort transliteration of Unicode characters to ASCII, instead of replacing all unrecognized characters with `-`.
 - Kicks, modes, and most forms of IRC moderation are **not supported**, as it is way out of our scope to bidirectionally sync IRC modes (which are complicated!) and Discord permissions (which are also complicated!).
     - Attempts to kick from IRC are bounced because there is no equivalent concept on Discord (Discord kicks are by guild).
-- Basic formatting works mostly OK (bold, underline, italic).
 - Attachments sent to Discord are relayed as a link to IRC.
 
 ## TODO
