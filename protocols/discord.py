@@ -19,7 +19,6 @@
 __version__ = '0.2.0'
 
 import calendar
-import time
 import collections
 import queue
 import string
