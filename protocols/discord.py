@@ -21,7 +21,9 @@ __version__ = '0.2.0'
 import calendar
 import time
 import collections
+import queue
 import string
+import threading
 import urllib.parse
 
 import socket, gevent.socket
@@ -42,7 +44,7 @@ from disco.types.user import Status as DiscordStatus
 #from disco.util.logging import setup_logging
 from holster.emitter import Priority
 
-from pylinkirc import structures, utils
+from pylinkirc import structures, utils, world
 from pylinkirc.classes import *
 from pylinkirc.log import log
 import pylinkirc
