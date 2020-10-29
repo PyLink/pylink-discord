@@ -4,8 +4,8 @@
 
 ## Requirements
 - CPython 3.5 or later
-- PyLink 2.1-alpha2+ (currently in the [**`devel`**](https://github.com/jlu5/PyLink/tree/devel) branch in git)
-- [disco](https://github.com/b1naryth1ef/disco) (git master, commit [7fbca825](https://github.com/b1naryth1ef/disco/commit/7fbca825f85a0936487d0b780dc53dcdbb920e21) or later) - Discord API library
+- PyLink 3.0+
+- [disco](https://github.com/b1naryth1ef/disco) (0.0.14-rc.1 or later) - Discord API library
 - *Optional:* [libgravatar](https://github.com/pabluk/libgravatar) - provides Gravatar support when configuring avatars
 
 You can also install these dependencies via pip (for Python 3) using: `pip3 install -r requirements.txt`
