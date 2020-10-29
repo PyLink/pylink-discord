@@ -1,6 +1,8 @@
 # pylink-discord
 
-**pylink-discord** provides Discord integration for [PyLink](https://github.com/jlu5/PyLink). Using this module, you can transparently relay conversations between IRC and Discord (using virtual clients on IRC & webhook users on Discord), as well as between multiple Discord guilds.
+**UPDATE 2020-10: pylink-discord needs new maintainers. Unfortunately, this project has grown in a way that makes maintenance quite difficult, and I don't have time to continue working on it anymore. See my blog post https://jlu5.com/blog/the-trouble-with-pylink for more details.**
+
+pylink-discord provides Discord integration for [PyLink](https://github.com/jlu5/PyLink). Using this module, you can transparently relay conversations between IRC and Discord (using virtual clients on IRC & webhook users on Discord), as well as between multiple Discord guilds.
 
 ## Requirements
 - CPython 3.5 or later
